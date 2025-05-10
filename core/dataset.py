@@ -3,20 +3,64 @@ import json
 
 
 class CustomDataset(Dataset):
-    def __init__(self, data_json_dir, MIRAGE: bool = False):
-        self.data_dir = data_json_dir
-        self.data = json.load(open(data_json_dir, 'r', encoding='utf-8'))
-        self.MIRAGE_format = MIRAGE
-
-    def __len__(self):
-        return len(self.data) if self.MIRAGE_format else len(self.data['original'])
+    def __init__(self,
+                 data_path,
+                 scoring_tokenizer,
+                 reference_tokenizer=None,
+                 data_format='MIRAGE'):
+        super().__init__()
+        self.data = json.load(open(data_path, 'r'))
+        self.scoring_tokenizer = scoring_tokenizer
+        if reference_tokenizer is not None:
+            self.reference_tokenizer = reference_tokenizer
+        else:
+            self.reference_tokenizer = scoring_tokenizer
+        self.data_format = data_format
 
     def __getitem__(self, index):
-        if self.MIRAGE_format:
+        if self.data_format == 'MIRAGE':
             original_text = self.data[index]['original']
-            sampled_text = self.data[index]['rewritten']
+            rewritten_text = self.data[index]['rewritten']
         else:
             original_text = self.data['original'][index]
-            sampled_text = self.data['rewritten'][index]
+            rewritten_text = self.data['rewritten'][index]
+        return {
+            'original': original_text,
+            'rewritten': rewritten_text
+        }
+    
+    def collate_fn(self, batch):
+        original_texts = [item['original'] for item in batch]
+        rewritten_texts = [item['rewritten'] for item in batch]
 
-        return {'original': original_text, 'rewritten': sampled_text}
+        # Tokenize batches with padding and truncation
+        original_tokens_for_scoring_model = self.scoring_tokenizer(
+            original_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
+        )
+        rewritten_tokens_for_scoring_model = self.scoring_tokenizer(
+            rewritten_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
+        )
+        original_tokens_for_reference_model = self.reference_tokenizer(
+            original_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
+        )
+        rewritten_tokens_for_reference_model = self.reference_tokenizer(
+            rewritten_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
+        )
+
+        return {
+            'scoring':{
+                'original_input_ids': original_tokens_for_scoring_model['input_ids'],
+                'original_attention_mask': original_tokens_for_scoring_model['attention_mask'],
+                'rewritten_input_ids': rewritten_tokens_for_scoring_model['input_ids'],
+                'rewritten_attention_mask': rewritten_tokens_for_scoring_model['attention_mask']
+            },
+            'reference':{
+                'original_input_ids': original_tokens_for_reference_model['input_ids'],
+                'original_attention_mask': original_tokens_for_reference_model['attention_mask'],
+                'rewritten_input_ids': rewritten_tokens_for_reference_model['input_ids'],
+                'rewritten_attention_mask': rewritten_tokens_for_reference_model['attention_mask']
+            }
+        }
+    
+    def __len__(self):
+        return len(self.data) if self.data_format == 'MIRAGE' else len(self.data['original'])

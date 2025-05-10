@@ -9,7 +9,7 @@ from peft import get_peft_model, LoraConfig, TaskType, AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-class DiscrepancyEsitimator(nn.Module):
+class DiscrepancyEstimator(nn.Module):
     def __init__(self,
                  scoring_model_name: str=None,
                  scoring_model: AutoModelForCausalLM=None,
@@ -17,8 +17,14 @@ class DiscrepancyEsitimator(nn.Module):
                  reference_model_name: str=None,
                  reference_model: AutoModelForCausalLM=None,
                  reference_tokenizer: AutoTokenizer=None,
-                 cache_dir: str=None,):
+                 cache_dir: str=None,
+                 train_method: str='DDL',
+                 ):
         super().__init__()
+        assert train_method in ['DDL', 'SPO'], 'train_method should be DDL or SPO.'
+        self.train_method = train_method
+        self.scoring_model_name = scoring_model_name
+        self.reference_model_name = reference_model_name
         if scoring_model_name is None:
             assert scoring_model is not None and scoring_tokenizer is not None, \
                 "If scoring_model_name is not provided, you should provide specific scoring_model!"
@@ -42,10 +48,25 @@ class DiscrepancyEsitimator(nn.Module):
                 self.reference_model = reference_model
                 self.reference_tokenizer = reference_tokenizer
             else:
-                assert reference_tokenizer is None, \
-                    "If reference_tokenizer is provided, you should provide reference_model!"
-                self.reference_model = None
-                self.reference_tokenizer = None
+                if train_method == 'DDL':
+                    self.reference_model = None
+                    self.reference_tokenizer = None
+                elif train_method == 'SPO':
+                    self.reference_model = copy.deepcopy(self.scoring_model)
+                    self.reference_tokenizer = copy.deepcopy(self.scoring_tokenizer)
+                else:
+                    raise ValueError('train_method should be DDL or SPO.')
+        else:
+            assert reference_model is None and reference_tokenizer is None, \
+                "You should not provide reference_model_name and reference_model/reference_tokenizer at the same time!"
+            self.reference_model = AutoModelForCausalLM.from_pretrained(reference_model_name,
+                                                                        device_map='auto',
+                                                                        cache_dir=cache_dir)
+            self.reference_tokenizer = AutoTokenizer.from_pretrained(reference_model_name,
+                                                                     use_fast=True if 'facebook/opt-' not in reference_model_name else False,
+                                                                     padding_side='right',
+                                                                     device_map='auto',
+                                                                     cache_dir=cache_dir)
             
     def add_lora_config(self, lora_config: LoraConfig):
         self.lora_config = lora_config
@@ -76,62 +97,96 @@ class DiscrepancyEsitimator(nn.Module):
                 self.reference_model.half()
             self.half()
 
-    def get_sampling_discrepancy_analytic(self, logits_ref, logits_score, labels):
+    def get_sampling_discrepancy_analytic(self, reference_logits, scoring_logits, labels, attention_mask):
 
-        if logits_ref.size(-1) != logits_score.size(-1):
-            vocab_size = min(logits_ref.size(-1), logits_score.size(-1))
-            logits_ref = logits_ref[:, :, :vocab_size]
-            logits_score = logits_score[:, :, :vocab_size]
+        if reference_logits.size(-1) != scoring_logits.size(-1):
+            vocab_size = min(reference_logits.size(-1), scoring_logits.size(-1))
+            reference_logits = reference_logits[:, :, :vocab_size]
+            scoring_logits = scoring_logits[:, :, :vocab_size]
 
-        labels = labels.unsqueeze(-1) if labels.ndim == logits_score.ndim - 1 else labels
-        lprobs_score = torch.log_softmax(logits_score, dim=-1)
-        probs_ref = torch.softmax(logits_ref, dim=-1)
+        labels = labels.unsqueeze(-1) if labels.ndim == scoring_logits.ndim - 1 else labels
+        lprobs_score = torch.log_softmax(scoring_logits, dim=-1)
+        probs_ref = torch.softmax(reference_logits, dim=-1)
         
         log_likelihood = lprobs_score.gather(dim=-1, index=labels).squeeze(-1)
         mean_ref = (probs_ref * lprobs_score).sum(dim=-1)
         var_ref = (probs_ref * torch.square(lprobs_score)).sum(dim=-1) - torch.square(mean_ref)
-        discrepancy = (log_likelihood.sum(dim=-1) - mean_ref.sum(dim=-1)) / var_ref.sum(dim=-1).sqrt()
         
-        return discrepancy, log_likelihood.sum(dim=-1)
+        mask = attention_mask[:, 1:].float()  # [bsz, seq_len-1], 1 for non-pad, 0 for pad
+        log_likelihood_sum = (log_likelihood * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
+        mean_ref_sum = (mean_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
+        var_ref_sum = (var_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
+        discrepancy = (log_likelihood_sum - mean_ref_sum) / (var_ref_sum.sqrt() + 1e-8)  # [bsz], avoid division by zero
+        
+        return discrepancy, log_likelihood_sum
     
-    def forward(self, original_text, rewritten_text):
-        # processing original text
-        tokenized = self.scoring_tokenizer(original_text, return_tensors="pt", padding=True, return_token_type_ids=False).to(self.device)
-        labels = tokenized.input_ids[:, 1:] # shape: [bsz, sentence_len]
-        logits_score = self.scoring_model(tokenized.input_ids, attention_mask=tokenized.attention_mask).logits[:,:-1,:]
+    def get_discrepancy_of_scoring_and_reference_models(self,
+                                                        input_ids_for_scoring_model,
+                                                        attention_mask_for_scoring_model,
+                                                        input_ids_for_reference_model=None,
+                                                        attention_mask_for_reference_model=None,
+                                                        ) -> dict:
+        labels = input_ids_for_scoring_model[:, 1:] # shape: [bsz, sentence_len]
+        scoring_logits = self.scoring_model(input_ids_for_scoring_model,
+                                            attention_mask=attention_mask_for_scoring_model).logits[:,:-1,:]
         if self.reference_model is not None:
+            assert input_ids_for_reference_model is not None and attention_mask_for_reference_model is not None, \
+                "If reference_model is provided, you should provide reference_tokenizer to dataset initialization."
             with torch.no_grad():
-                tokenized_ref = self.reference_tokenizer(original_text, return_tensors="pt", padding=True, return_token_type_ids=False).to(self.device)
-                assert torch.all(tokenized_ref.input_ids[:, 1:] == labels), "Tokenizer is mismatch."
-                logits_ref = self.reference_model(tokenized_ref.input_ids, attention_mask=tokenized_ref.attention_mask).logits[:,:-1,:]
-                original_discrepancy_ref, original_logprob_ref = self.get_sampling_discrepancy_analytic(logits_ref, logits_ref, labels)
+                # check if tokenizer is the match
+                reference_labels = input_ids_for_reference_model[:, 1:] # shape: [bsz, sentence_len]
+                assert torch.all(reference_labels == labels), \
+                    "Tokenizer is mismatch."
+                reference_logits = self.reference_model(input_ids_for_reference_model,
+                                                        attention_mask=attention_mask_for_reference_model).logits[:,:-1,:]
         else:
-            logits_ref = logits_score
-            original_discrepancy_ref, original_logprob_ref = None, None
-        original_discrepancy_score, original_logprob_score = self.get_sampling_discrepancy_analytic(logits_ref, logits_score, labels)
+            reference_logits = scoring_logits
 
-        # processing rewritten text
-        tokenized = self.scoring_tokenizer(rewritten_text, return_tensors="pt", padding=True, return_token_type_ids=False).to(self.device)
-        labels = tokenized.input_ids[:, 1:] # shape: [bsz, sentence_len]
-        logits_score = self.scoring_model(tokenized.input_ids, attention_mask=tokenized.attention_mask).logits[:,:-1,:]
         if self.reference_model is not None:
-            with torch.no_grad():
-                tokenized_ref = self.reference_tokenizer(rewritten_text, return_tensors="pt", padding=True, return_token_type_ids=False).to(self.device)
-                assert torch.all(tokenized_ref.input_ids[:, 1:] == labels), "Tokenizer is mismatch."
-                logits_ref = self.reference_model(tokenized_ref.input_ids, attention_mask=tokenized_ref.attention_mask).logits[:,:-1,:]
-                rewritten_discrepancy_ref, rewritten_logprob_ref = self.get_sampling_discrepancy_analytic(logits_ref, logits_ref, labels)
+            discrepancy_ref, logprob_ref = self.get_sampling_discrepancy_analytic(reference_logits, reference_logits,
+                                                                                  labels, attention_mask=attention_mask_for_reference_model)
         else:
-            logits_ref = logits_score
-            rewritten_discrepancy_ref, rewritten_logprob_ref = None, None
-        rewritten_discrepancy_score, rewritten_logprob_score = self.get_sampling_discrepancy_analytic(logits_ref, logits_score, labels)
+            discrepancy_ref, logprob_ref = None, None
+        discrepancy_score, logprob_score = self.get_sampling_discrepancy_analytic(reference_logits, scoring_logits,
+                                                                                  labels, attention_mask=attention_mask_for_scoring_model)
 
         return {
-            'scoring_model_original_discrepancy': original_discrepancy_score,
-            'scoring_model_original_logprob': original_logprob_score,
-            'scoring_model_rewritten_discrepancy': rewritten_discrepancy_score,
-            'scoring_model_rewritten_logprob': rewritten_logprob_score,
-            'reference_model_original_discrepancy': original_discrepancy_ref,
-            'reference_model_original_logprob': original_logprob_ref,
-            'reference_model_rewritten_discrepancy': rewritten_discrepancy_ref,
-            'reference_model_rewritten_logprob': rewritten_logprob_ref,
+            'scoring_discrepancy': discrepancy_score,
+            'scoring_logprob': logprob_score,
+            'reference_discrepancy': discrepancy_ref,
+            'reference_logprob': logprob_ref,
+        }
+    
+    def forward(self,
+                scoring_original_input_ids,
+                scoring_original_attention_mask,
+                scoring_rewritten_input_ids,
+                scoring_rewritten_attention_mask,
+                reference_original_input_ids=None,
+                reference_original_attention_mask=None,
+                reference_rewritten_input_ids=None,
+                reference_rewritten_attention_mask=None,
+                ) -> dict:
+        original_output = self.get_discrepancy_of_scoring_and_reference_models(
+            input_ids_for_scoring_model=scoring_original_input_ids,
+            attention_mask_for_scoring_model=scoring_original_attention_mask,
+            input_ids_for_reference_model=reference_original_input_ids,
+            attention_mask_for_reference_model=reference_original_attention_mask,
+        )
+        rewritten_output = self.get_discrepancy_of_scoring_and_reference_models(
+            input_ids_for_scoring_model=scoring_rewritten_input_ids,
+            attention_mask_for_scoring_model=scoring_rewritten_attention_mask,
+            input_ids_for_reference_model=reference_rewritten_input_ids,
+            attention_mask_for_reference_model=reference_rewritten_attention_mask,
+        )
+        
+        return {
+            'scoring_original_discrepancy': original_output['scoring_discrepancy'],
+            'scoring_original_logprob': original_output['scoring_logprob'],
+            'scoring_rewritten_discrepancy': rewritten_output['scoring_discrepancy'],
+            'scoring_rewritten_logprob': rewritten_output['scoring_logprob'],
+            'reference_original_discrepancy': original_output['reference_discrepancy'],
+            'reference_original_logprob': original_output['reference_logprob'],
+            'reference_rewritten_discrepancy': rewritten_output['reference_discrepancy'],
+            'reference_rewritten_logprob': rewritten_output['reference_logprob'],
         }
