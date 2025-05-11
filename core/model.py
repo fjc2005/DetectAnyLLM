@@ -12,11 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 class DiscrepancyEstimator(nn.Module):
     def __init__(self,
                  scoring_model_name: str=None,
-                 scoring_model: AutoModelForCausalLM=None,
-                 scoring_tokenizer: AutoTokenizer=None,
                  reference_model_name: str=None,
-                 reference_model: AutoModelForCausalLM=None,
-                 reference_tokenizer: AutoTokenizer=None,
                  cache_dir: str=None,
                  train_method: str='DDL',
                  ):
@@ -26,39 +22,26 @@ class DiscrepancyEstimator(nn.Module):
         self.scoring_model_name = scoring_model_name
         self.reference_model_name = reference_model_name
         if scoring_model_name is None:
-            assert scoring_model is not None and scoring_tokenizer is not None, \
-                "If scoring_model_name is not provided, you should provide specific scoring_model!"
-            self.scoring_model = scoring_model
-            self.scoring_tokenizer = scoring_tokenizer
+            raise ValueError('You should provide scoring_model_name.')
         else:
-            assert scoring_model is None and scoring_tokenizer is None, \
-                "You should not provide scoring_model_name and scoring_model/scoring_tokenizer at the same time!"
             self.scoring_model = AutoModelForCausalLM.from_pretrained(scoring_model_name,
-                                                                      device_map='auto',
-                                                                      cache_dir=cache_dir)
+                                                                    device_map='auto',
+                                                                    cache_dir=cache_dir)
             self.scoring_tokenizer = AutoTokenizer.from_pretrained(scoring_model_name,
-                                                                   use_fast=True if 'facebook/opt-' not in scoring_model_name else False,
-                                                                   padding_side='right',
-                                                                   device_map='auto',
-                                                                   cache_dir=cache_dir)
+                                                                use_fast=True if 'facebook/opt-' not in scoring_model_name else False,
+                                                                padding_side='right',
+                                                                device_map='auto',
+                                                                cache_dir=cache_dir)
         if reference_model_name is None:
-            if reference_model is not None:
-                assert reference_tokenizer is not None, \
-                    "If reference_model is provided, you should provide reference_tokenizer!"
-                self.reference_model = reference_model
-                self.reference_tokenizer = reference_tokenizer
+            if train_method == 'DDL':
+                self.reference_model = None
+                self.reference_tokenizer = None
+            elif train_method == 'SPO':
+                self.reference_model = copy.deepcopy(self.scoring_model)
+                self.reference_tokenizer = self.scoring_tokenizer
             else:
-                if train_method == 'DDL':
-                    self.reference_model = None
-                    self.reference_tokenizer = None
-                elif train_method == 'SPO':
-                    self.reference_model = copy.deepcopy(self.scoring_model)
-                    self.reference_tokenizer = copy.deepcopy(self.scoring_tokenizer)
-                else:
-                    raise ValueError('train_method should be DDL or SPO.')
+                raise ValueError('train_method should be DDL or SPO.')
         else:
-            assert reference_model is None and reference_tokenizer is None, \
-                "You should not provide reference_model_name and reference_model/reference_tokenizer at the same time!"
             self.reference_model = AutoModelForCausalLM.from_pretrained(reference_model_name,
                                                                         device_map='auto',
                                                                         cache_dir=cache_dir)
@@ -111,8 +94,9 @@ class DiscrepancyEstimator(nn.Module):
         log_likelihood = lprobs_score.gather(dim=-1, index=labels).squeeze(-1)
         mean_ref = (probs_ref * lprobs_score).sum(dim=-1)
         var_ref = (probs_ref * torch.square(lprobs_score)).sum(dim=-1) - torch.square(mean_ref)
-        
+
         mask = attention_mask[:, 1:].float()  # [bsz, seq_len-1], 1 for non-pad, 0 for pad
+        assert mask.shape == labels.shape, "mask and labels should have the same shape."
         log_likelihood_sum = (log_likelihood * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
         mean_ref_sum = (mean_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
         var_ref_sum = (var_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
@@ -167,6 +151,18 @@ class DiscrepancyEstimator(nn.Module):
                 reference_rewritten_input_ids=None,
                 reference_rewritten_attention_mask=None,
                 ) -> dict:
+        if self.train_method == 'SPO':
+            assert reference_original_input_ids is not None and reference_original_attention_mask is not None, \
+                "If train_method is SPO, you should provide reference_original_input_ids and reference_original_attention_mask."
+            assert reference_rewritten_input_ids is not None and reference_rewritten_attention_mask is not None, \
+                "If train_method is SPO, you should provide reference_rewritten_input_ids and reference_rewritten_attention_mask."
+        elif self.train_method == 'DDL':
+            assert reference_original_input_ids is None and reference_original_attention_mask is None, \
+                "If train_method is DDL, you should not provide reference_original_input_ids and reference_original_attention_mask."
+            assert reference_rewritten_input_ids is None and reference_rewritten_attention_mask is None, \
+                "If train_method is DDL, you should not provide reference_rewritten_input_ids and reference_rewritten_attention_mask."
+        else:
+            raise ValueError('train_method should be DDL or SPO.')
         original_output = self.get_discrepancy_of_scoring_and_reference_models(
             input_ids_for_scoring_model=scoring_original_input_ids,
             attention_mask_for_scoring_model=scoring_original_attention_mask,
