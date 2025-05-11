@@ -26,12 +26,14 @@ class Trainer():
               save_directory: str='./ckpt/',
               DDL_target_original_crit: float = 0.,
               DDL_target_rewritten_crit: float = 100.,
-              DPO_beta: float = 0.05,):
+              DPO_beta: float = 0.05,
+              train_batch_size: int = 1,
+              eval_batch_size: int = 1):
         assert loss_fn in [calculate_DDL_loss, calculate_DPO_loss], "Invalid loss function"
         start_time = time.time()
-        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True,
+        train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True,
                                   collate_fn=train_dataset.collate_fn)
-        eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False,
+        eval_loader = DataLoader(eval_dataset, batch_size=eval_batch_size, shuffle=False,
                                  collate_fn=eval_dataset.collate_fn)
         optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,

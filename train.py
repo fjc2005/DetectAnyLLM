@@ -13,4 +13,86 @@ from core.loss import calculate_DPO_loss, calculate_DDL_loss
 from core.metrics import AUROC, AUPR
 from core.trainer import Trainer
 from accelerate import Accelerator
-from peft import LoraConfig
+from peft import LoraConfig, TaskType
+
+parser = argparse.ArgumentParser()
+# Model
+parser.add_argument('--scoring_model_name', type=str, default='gpt-neo-2.7B', help='The name of the scoring model. Default: GPT-Neo-2.7B.')
+parser.add_argument('--reference_model_name', type=str, default=None, help='The name of the reference model. Default: None. Which indicates that the reference model is the same as the scoring model when using DPO and None when using DDL.')
+parser.add_argument('--cache_dir', type=str, default='./model/', help='The directory to cache the models. Default: ./model/')
+parser.add_argument('--train_method', type=str, default='DDL', help='The training method. Should be DDL or SPO. Default: DDL.')
+# LoRA
+parser.add_argument('--lora_rank', type=int, default=8, help='The rank of LoRA. Default: 8.')
+parser.add_argument('--lora_alpha', type=float, default=32., help='The alpha of LoRA. Default: 32.')
+parser.add_argument('--lora_dropout', type=float, default=0.1, help='The dropout of LoRA. Default: 0.1.')
+# Data
+parser.add_argument('--train_data_path', type=str, default='./data/DIG/polish.json', help='The path to the training data. Default: ./data/DIG/polish.json.')
+parser.add_argument('--train_data_format', type=str, default='MIRAGE', help='The format of the training data. Should be MIRAGE or ImBD. Default: MIRAGE.')
+parser.add_argument('--eval_data_path', type=str, default='./data/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
+parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The format of the evaluation data. Should be MIRAGE or ImBD. Default: MIRAGE.')
+parser.add_argument('--train_batch_size', type=int, default=1, help='The batch size of training data. Default: 1.')
+parser.add_argument('--eval_batch_size', type=int, default=1, help='The batch size of evaluation data. Default: 1.')
+# Training
+parser.add_argument('--learning_rate', type=float, default=1e-4, help='The learning rate. Default: 1e-4.')
+parser.add_argument('--num_epochs', type=int, default=5, help='The number of epochs. Default: 5.')
+parser.add_argument('--eval_freq', type=int, default=1, help='The frequency of evaluation. Default: 1.')
+parser.add_argument('--save_freq', type=int, default=5, help='The frequency of saving the model. Default: 5.')
+parser.add_argument('--save_directory', type=str, default='./ckpt/', help='The directory to save the model. Default: ./ckpt/.')
+# Loss
+parser.add_argument('--loss_fn', type=str, default='DDL', help='The loss function. Should be DDL or DPO. Default: DDL.')
+parser.add_argument('--DDL_target_original_crit', type=float, default=0., help='The target crit of original text when using DDL. Default: 0.')
+parser.add_argument('--DDL_target_rewritten_crit', type=float, default=100., help='The target crit of rewritten text when using DDL. Default: 1.')
+parser.add_argument('--DPO_beta', type=float, default=0.05, help='The beta of DPO. Default: 0.05.')
+
+
+def main(args):
+    # Set up accelerator
+    accelerator = Accelerator()
+
+    # Set up model
+    model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
+                                 reference_model_name=args.reference_model_name,
+                                 cache_dir=args.cache_dir,
+                                 train_method=args.train_method)
+    lora_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM, inference_mode=False, r=args.lora_rank, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
+        )
+    model.add_lora_config(lora_config)
+
+    # Set up dataset
+    train_dataset = CustomDataset(data_path=args.train_data_path,
+                                  scoring_tokenizer=model.scoring_tokenizer,
+                                  reference_tokenizer=model.reference_tokenizer,
+                                  data_format=args.train_data_format)
+    eval_dataset = CustomDataset(data_path=args.eval_data_path,
+                                 scoring_tokenizer=model.scoring_tokenizer,
+                                 reference_tokenizer=model.reference_tokenizer,
+                                 data_format=args.eval_data_format)
+
+    # Set up loss function
+    assert args.loss_fn in ['DDL', 'DPO'], "Invalid loss function"
+    if args.loss_fn == 'DDL':
+        loss_fn = calculate_DDL_loss
+    else:
+        loss_fn = calculate_DPO_loss
+
+    # Set up trainer
+    trainer = Trainer()
+
+    trainer.train(accelerator=accelerator,
+                  model=model,
+                  train_dataset=train_dataset,
+                  eval_dataset=eval_dataset,
+                  loss_fn=loss_fn,
+                  learning_rate=args.learning_rate,
+                  num_epochs=args.num_epochs,
+                  eval_freq=args.eval_freq,
+                  save_freq=args.save_freq,
+                  save_directory=args.save_directory,
+                  DDL_target_original_crit=args.DDL_target_original_crit,
+                  DDL_target_rewritten_crit=args.DDL_target_rewritten_crit,
+                  DPO_beta=args.DPO_beta)
+    
+if __name__ == '__main__':
+    args = parser.parse_args()
+    main(args)
