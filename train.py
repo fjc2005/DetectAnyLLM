@@ -17,7 +17,7 @@ from peft import LoraConfig, TaskType
 
 parser = argparse.ArgumentParser()
 # Model
-parser.add_argument('--scoring_model_name', type=str, default='gpt-neo-2.7B', help='The name of the scoring model. Default: GPT-Neo-2.7B.')
+parser.add_argument('--scoring_model_name', type=str, default='gpt-neo-2.7b', help='The name of the scoring model. Default: gpt-neo-2.7b.')
 parser.add_argument('--reference_model_name', type=str, default=None, help='The name of the reference model. Default: None. Which indicates that the reference model is the same as the scoring model when using DPO and None when using DDL.')
 parser.add_argument('--cache_dir', type=str, default='./model/', help='The directory to cache the models. Default: ./model/')
 parser.add_argument('--train_method', type=str, default='DDL', help='The training method. Should be DDL or SPO. Default: DDL.')

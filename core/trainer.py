@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import time
+import os
 
 from torch.utils.data import DataLoader
 from .model import DiscrepancyEstimator
@@ -78,21 +79,26 @@ class Trainer():
                     epoch_original_discrepancy_train.append(ori_discrepancy.item())
                     epoch_rewritten_discrepancy_train.append(rew_discrepancy.item())
             epoch_loss /= len(train_loader)
-            train_epoch_auroc = AUROC(epoch_original_discrepancy_train, epoch_rewritten_discrepancy_train)
-            train_epoch_aupr = AUPR(epoch_original_discrepancy_train, epoch_rewritten_discrepancy_train)
+            fpr, tpr, train_epoch_auroc = AUROC(epoch_original_discrepancy_train, epoch_rewritten_discrepancy_train)
+            prec, recall, train_epoch_aupr = AUPR(epoch_original_discrepancy_train, epoch_rewritten_discrepancy_train)
             print(f'Epoch: {epoch + 1} | Time: {time.time() - epoch_start_time:.3f} sec')
             print(f'Train Loss: {epoch_loss:.8f}')
-            print(f'Train Discrepancy Mean: {torch.mean(torch.tensor(epoch_original_discrepancy_train)).item():.2f} | Train Discrepancy Std: {torch.std(torch.tensor(epoch_original_discrepancy_train)).item():.2f}')
+            print(f'Original Discrepancy Mean: {torch.mean(torch.tensor(epoch_original_discrepancy_train)).item():.2f} | Original Discrepancy Std: {torch.std(torch.tensor(epoch_original_discrepancy_train)).item():.2f}')
+            print(f'Rewritten Discrepancy Mean: {torch.mean(torch.tensor(epoch_rewritten_discrepancy_train)).item():.2f} | Rewritten Discrepancy Std: {torch.std(torch.tensor(epoch_rewritten_discrepancy_train)).item():.2f}')
             print(f'Train AUROC: {train_epoch_auroc:.4f} | Train AUPR: {train_epoch_aupr:.4f}')
 
             if (epoch + 1) % eval_freq == 0:
                 eval_start_time = time.time()
-                eval_discrepancy_mean, eval_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr = self.eval(model, eval_loader)
+                original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, \
+                    eval_epoch_auroc, eval_epoch_aupr = self.eval(model, eval_loader)
+                
                 print(f'Epoch: {epoch + 1} | Eval Time: {time.time() - eval_start_time:.3f} sec')
-                print(f'Eval Discrepancy Mean: {eval_discrepancy_mean:.2f} | Eval Discrepancy Std: {eval_discrepancy_std:.2f}')
+                print(f'Original Discrepancy Mean: {original_discrepancy_mean:.2f} | Original Discrepancy Std: {original_discrepancy_std:.2f}')
+                print(f'Rewritten Discrepancy Mean: {rewritten_discrepancy_mean:.2f} | Rewritten Discrepancy Std: {rewritten_discrepancy_std:.2f}')
+
                 print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
             
-            if (epoch + 1) == num_epochs and (epoch + 1) & (eval_freq) != 0:
+            if (epoch + 1) == num_epochs and (epoch + 1) % (eval_freq) != 0:
                 eval_start_time = time.time()
                 eval_discrepancy_mean, eval_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr = self.eval(model, eval_loader)
                 print(f'Epoch: {epoch + 1} | Eval Time: {time.time() - eval_start_time:.3f} sec')
@@ -101,7 +107,10 @@ class Trainer():
             
             if (epoch + 1) == num_epochs or (epoch + 1) % save_freq == 0:
                 print('saving model ...')
-                model.save_pretrained(save_directory)
+                if not os.path.exists(save_directory):
+                    os.makedirs(save_directory, exist_ok=True)
+                unwrapped_model = accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(save_directory)
             
             if (epoch + 1) == num_epochs:
                 print(f'Finished Training!')
@@ -126,8 +135,10 @@ class Trainer():
                 for ori_discrepancy, rew_discrepancy in zip(outputs['scoring_original_discrepancy'], outputs['scoring_rewritten_discrepancy']):
                     epoch_original_discrepancy_eval.append(ori_discrepancy.item())
                     epoch_rewritten_discrepancy_eval.append(rew_discrepancy.item())
-            eval_epoch_auroc = AUROC(epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval)
-            eval_epoch_aupr = AUPR(epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval)
-            eval_discrepancy_mean = torch.mean(torch.tensor(epoch_original_discrepancy_eval)).item()
-            eval_discrepancy_std = torch.std(torch.tensor(epoch_original_discrepancy_eval)).item()
-            return eval_discrepancy_mean, eval_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr
+            fpr, tpr, eval_epoch_auroc = AUROC(epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval)
+            prec, recall, eval_epoch_aupr = AUPR(epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval)
+            original_discrepancy_mean = torch.mean(torch.tensor(epoch_original_discrepancy_eval)).item()
+            original_discrepancy_std = torch.std(torch.tensor(epoch_original_discrepancy_eval)).item()
+            rewritten_discrepancy_mean = torch.mean(torch.tensor(epoch_rewritten_discrepancy_eval)).item()
+            rewritten_discrepancy_std = torch.std(torch.tensor(epoch_rewritten_discrepancy_eval)).item()
+            return original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr

@@ -8,6 +8,17 @@ import copy
 from peft import get_peft_model, LoraConfig, TaskType, AutoPeftModelForCausalLM
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+def from_pretrained(cls, model_name, kwargs, cache_dir):
+    # use local model if it exists
+    if "/" in model_name:
+        local_path = os.path.join(cache_dir, model_name.split("/")[-1])
+    else:
+        local_path = os.path.join(cache_dir, model_name)
+
+    if os.path.exists(local_path):
+        return cls.from_pretrained(local_path, **kwargs)
+    return cls.from_pretrained(model_name, **kwargs, cache_dir=cache_dir, device_map='auto')
+
 
 class DiscrepancyEstimator(nn.Module):
     def __init__(self,
@@ -24,14 +35,18 @@ class DiscrepancyEstimator(nn.Module):
         if scoring_model_name is None:
             raise ValueError('You should provide scoring_model_name.')
         else:
-            self.scoring_model = AutoModelForCausalLM.from_pretrained(scoring_model_name,
-                                                                    device_map='auto',
-                                                                    cache_dir=cache_dir)
-            self.scoring_tokenizer = AutoTokenizer.from_pretrained(scoring_model_name,
-                                                                use_fast=True if 'facebook/opt-' not in scoring_model_name else False,
-                                                                padding_side='right',
-                                                                device_map='auto',
-                                                                cache_dir=cache_dir)
+            self.scoring_model = from_pretrained(AutoModelForCausalLM,
+                                                 scoring_model_name,
+                                                 cache_dir=cache_dir,
+                                                 kwargs={})
+            self.scoring_tokenizer = from_pretrained(AutoTokenizer,
+                                                     scoring_model_name,
+                                                     kwargs={'padding_side': 'right',
+                                                             'use_fast': True if 'facebook/opt-' not in scoring_model_name else False},
+                                                     cache_dir=cache_dir,)
+            if self.scoring_tokenizer.pad_token is None:
+                self.scoring_tokenizer.pad_token = self.scoring_tokenizer.eos_token
+                self.scoring_tokenizer.pad_token_id = self.scoring_tokenizer.eos_token_id
         if reference_model_name is None:
             if train_method == 'DDL':
                 self.reference_model = None
@@ -42,14 +57,18 @@ class DiscrepancyEstimator(nn.Module):
             else:
                 raise ValueError('train_method should be DDL or SPO.')
         else:
-            self.reference_model = AutoModelForCausalLM.from_pretrained(reference_model_name,
-                                                                        device_map='auto',
-                                                                        cache_dir=cache_dir)
-            self.reference_tokenizer = AutoTokenizer.from_pretrained(reference_model_name,
-                                                                     use_fast=True if 'facebook/opt-' not in reference_model_name else False,
-                                                                     padding_side='right',
-                                                                     device_map='auto',
-                                                                     cache_dir=cache_dir)
+            self.reference_model = from_pretrained(AutoModelForCausalLM,
+                                                   reference_model_name,
+                                                   cache_dir=cache_dir,
+                                                   kwargs={})
+            self.reference_tokenizer = from_pretrained(AutoTokenizer,
+                                                       reference_model_name,
+                                                       kwargs={'padding_side': 'right',
+                                                               'use_fast': True if 'facebook/opt-' not in reference_model_name else False},
+                                                       cache_dir=cache_dir,)
+            if self.reference_tokenizer.pad_token is None:
+                self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
+                self.reference_tokenizer.pad_token_id = self.reference_tokenizer.eos_token_id
             
     def add_lora_config(self, lora_config: LoraConfig):
         self.lora_config = lora_config
@@ -96,7 +115,6 @@ class DiscrepancyEstimator(nn.Module):
         var_ref = (probs_ref * torch.square(lprobs_score)).sum(dim=-1) - torch.square(mean_ref)
 
         mask = attention_mask[:, 1:].float()  # [bsz, seq_len-1], 1 for non-pad, 0 for pad
-        assert mask.shape == labels.shape, "mask and labels should have the same shape."
         log_likelihood_sum = (log_likelihood * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
         mean_ref_sum = (mean_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
         var_ref_sum = (var_ref * mask).sum(dim=-1)  # [bsz], sum over non-pad tokens
@@ -110,7 +128,7 @@ class DiscrepancyEstimator(nn.Module):
                                                         input_ids_for_reference_model=None,
                                                         attention_mask_for_reference_model=None,
                                                         ) -> dict:
-        labels = input_ids_for_scoring_model[:, 1:] # shape: [bsz, sentence_len]
+        labels = input_ids_for_scoring_model[:, 1:] # shape: [bsz, sentence_len - 1]
         scoring_logits = self.scoring_model(input_ids_for_scoring_model,
                                             attention_mask=attention_mask_for_scoring_model).logits[:,:-1,:]
         if self.reference_model is not None:

@@ -11,10 +11,7 @@ class CustomDataset(Dataset):
         super().__init__()
         self.data = json.load(open(data_path, 'r'))
         self.scoring_tokenizer = scoring_tokenizer
-        if reference_tokenizer is not None:
-            self.reference_tokenizer = reference_tokenizer
-        else:
-            self.reference_tokenizer = scoring_tokenizer
+        self.reference_tokenizer = reference_tokenizer
         self.data_format = data_format
 
     def __getitem__(self, index):
@@ -42,10 +39,10 @@ class CustomDataset(Dataset):
         )
         original_tokens_for_reference_model = self.reference_tokenizer(
             original_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        )
+        ) if self.reference_tokenizer is not None else {'input_ids': None, 'attention_mask': None}
         rewritten_tokens_for_reference_model = self.reference_tokenizer(
             rewritten_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        )
+        ) if self.reference_tokenizer is not None else {'input_ids': None, 'attention_mask': None}
 
         return {
             'scoring':{
