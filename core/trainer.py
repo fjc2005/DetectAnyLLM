@@ -78,6 +78,10 @@ class Trainer():
                 train_losses.append(loss.detach().cpu().item())
                 epoch_original_discrepancy_train.extend(outputs['scoring_original_discrepancy'].detach().cpu().tolist())
                 epoch_rewritten_discrepancy_train.extend(outputs['scoring_rewritten_discrepancy'].detach().cpu().tolist())
+                accelerator.log({
+                    "train/loss": loss.detach().cpu().item(),
+                    "lr": lr_scheduler.get_last_lr()[0],
+                }, step=step + epoch * len(train_loader))
             accelerator.wait_for_everyone()
             if accelerator.is_local_main_process:
                 all_train_losses = accelerator.gather_for_metrics(torch.tensor(train_losses))
@@ -93,15 +97,12 @@ class Trainer():
 
                 # Prepare log dictionary
                 log_dict = {
-                    "train/loss": epoch_loss,
                     "train/auroc": train_epoch_auroc,
                     "train/aupr": train_epoch_aupr,
                     "train/original_discrepancy_mean": original_discrepancy_mean,
                     "train/original_discrepancy_std": original_discrepancy_std,
                     "train/rewritten_discrepancy_mean": rewritten_discrepancy_mean,
                     "train/rewritten_discrepancy_std": rewritten_discrepancy_std,
-                    "epoch": epoch + 1,
-                    "lr": lr_scheduler.get_last_lr()[0]
                 }
 
                 accelerator.print(f'Epoch: {epoch + 1} | Time: {time.time() - epoch_start_time:.3f} sec')
@@ -122,7 +123,7 @@ class Trainer():
                 })
 
             if track_with_wandb:
-                accelerator.log(log_dict, step=epoch)
+                accelerator.log(log_dict, step=(epoch + 1) * len(train_loader))
 
             if (epoch + 1) == num_epochs or (epoch + 1) % save_freq == 0:
                 accelerator.print('saving model ...')
@@ -167,8 +168,8 @@ class Trainer():
             all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(epoch_rewritten_discrepancy_eval))
             
             # Calculate evaluation metrics
-            fpr, tpr, eval_epoch_auroc = AUROC(all_original_eval.cpu().numpy(), all_rewritten_eval.cpu().numpy())
-            prec, recall, eval_epoch_aupr = AUPR(all_original_eval.cpu().numpy(), all_rewritten_eval.cpu().numpy())
+            fpr, tpr, eval_epoch_auroc = AUROC(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
+            prec, recall, eval_epoch_aupr = AUPR(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
             original_discrepancy_mean = torch.mean(all_original_eval).item()
             original_discrepancy_std = torch.std(all_original_eval).item()
             rewritten_discrepancy_mean = torch.mean(all_rewritten_eval).item()

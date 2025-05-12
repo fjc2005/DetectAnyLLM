@@ -5,6 +5,8 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import datetime
+
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from core.model import DiscrepancyEstimator
@@ -64,8 +66,25 @@ def main(args):
     if args.wandb == True:
         import wandb
         accelerator = Accelerator(log_with='wandb')
-        accelerator.init_trackers(project_name=project_name,
-                                  config=dict(args),
+        accelerator.init_trackers(project_name=f'{project_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}',
+                                  config={
+                                      'scoring_model_name': args.scoring_model_name,
+                                      'train_method': args.train_method,
+                                      'train_data': args.train_data_path.split("/")[-1].strip(".json"),
+                                      'eval_data': args.eval_data_path.split("/")[-1].strip(".json"),
+                                      'lora_rank': args.lora_rank,
+                                      'lora_alpha': args.lora_alpha,
+                                      'lora_dropout': args.lora_dropout,
+                                      'learning_rate': args.learning_rate,
+                                      'num_epochs': args.num_epochs,
+                                      'train_batch_size': args.train_batch_size,
+                                      'eval_batch_size': args.eval_batch_size,
+                                      'DDL_target_original_crit': args.DDL_target_original_crit,
+                                      'DDL_target_rewritten_crit': args.DDL_target_rewritten_crit,
+                                      'DPO_beta': args.DPO_beta,
+                                      'ckpt_name': args.ckpt_name,
+                                      'wandb_dir': args.wandb_dir,
+                                  },
                                   init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
     else:
         accelerator = Accelerator()
