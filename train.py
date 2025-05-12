@@ -38,16 +38,38 @@ parser.add_argument('--num_epochs', type=int, default=5, help='The number of epo
 parser.add_argument('--eval_freq', type=int, default=1, help='The frequency of evaluation. Default: 1.')
 parser.add_argument('--save_freq', type=int, default=5, help='The frequency of saving the model. Default: 5.')
 parser.add_argument('--save_directory', type=str, default='./ckpt/', help='The directory to save the model. Default: ./ckpt/.')
+parser.add_argument('--wandb', type=bool, default=False, help='Whether to use wandb for tracking. Default: False.')
 # Loss
-parser.add_argument('--loss_fn', type=str, default='DDL', help='The loss function. Should be DDL or DPO. Default: DDL.')
 parser.add_argument('--DDL_target_original_crit', type=float, default=0., help='The target crit of original text when using DDL. Default: 0.')
 parser.add_argument('--DDL_target_rewritten_crit', type=float, default=100., help='The target crit of rewritten text when using DDL. Default: 1.')
 parser.add_argument('--DPO_beta', type=float, default=0.05, help='The beta of DPO. Default: 0.05.')
+# Save
+parser.add_argument('--ckpt_name', type=str, default=None, help='The name of the saved model. Default: None.')
+parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directory to save the wandb logs. Default: ./log/.')
 
 
 def main(args):
+    if args.wandb:
+        os.makedirs(args.wandb_dir, exist_ok=True)
+        os.environ["WANDB_DIR"] = args.wandb_dir  # 关键修改：指定日志目录
+    if args.ckpt_name is not None:
+        project_name = f'{args.ckpt_name}'
+    elif args.train_method == 'DDL':
+        project_name = f'DDL_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].strip(".json")}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_rewTgt{args.DDL_target_rewritten_crit}_oriTgt{args.DDL_target_original_crit}_r{args.lora_rank}'
+    else:
+        project_name = f'SPO_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].strip(".json")}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_beta{args.DPO_beta}_r{args.lora_rank}'
+
+    
     # Set up accelerator
-    accelerator = Accelerator()
+    if args.wandb == True:
+        import wandb
+        accelerator = Accelerator(log_with='wandb')
+        accelerator.init_trackers(project_name=project_name,
+                                  config=dict(args),
+                                  init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
+    else:
+        accelerator = Accelerator()
+    accelerator.print(args)
 
     # Set up model
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
@@ -55,7 +77,11 @@ def main(args):
                                  cache_dir=args.cache_dir,
                                  train_method=args.train_method)
     lora_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM, inference_mode=False, r=args.lora_rank, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout
+            task_type=TaskType.CAUSAL_LM, 
+            inference_mode=False, 
+            r=args.lora_rank, 
+            lora_alpha=args.lora_alpha, 
+            lora_dropout=args.lora_dropout
         )
     model.add_lora_config(lora_config)
 
@@ -70,8 +96,8 @@ def main(args):
                                  data_format=args.eval_data_format)
 
     # Set up loss function
-    assert args.loss_fn in ['DDL', 'DPO'], "Invalid loss function"
-    if args.loss_fn == 'DDL':
+    assert args.train_method in ['DDL', 'DPO'], "Invalid loss function"
+    if args.train_method == 'DDL':
         loss_fn = calculate_DDL_loss
     else:
         loss_fn = calculate_DPO_loss
@@ -83,6 +109,8 @@ def main(args):
                   model=model,
                   train_dataset=train_dataset,
                   eval_dataset=eval_dataset,
+                  train_batch_size=args.train_batch_size,
+                  eval_batch_size=args.eval_batch_size,
                   loss_fn=loss_fn,
                   learning_rate=args.learning_rate,
                   num_epochs=args.num_epochs,
@@ -91,7 +119,8 @@ def main(args):
                   save_directory=args.save_directory,
                   DDL_target_original_crit=args.DDL_target_original_crit,
                   DDL_target_rewritten_crit=args.DDL_target_rewritten_crit,
-                  DPO_beta=args.DPO_beta)
+                  DPO_beta=args.DPO_beta,
+                  track_with_wandb=args.wandb,)
     
 if __name__ == '__main__':
     args = parser.parse_args()
