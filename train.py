@@ -139,7 +139,8 @@ def main(args):
                   DDL_target_original_crit=args.DDL_target_original_crit,
                   DDL_target_rewritten_crit=args.DDL_target_rewritten_crit,
                   DPO_beta=args.DPO_beta,
-                  track_with_wandb=args.wandb,)
+                  track_with_wandb=args.wandb,
+                  save_name=project_name)
     
 if __name__ == '__main__':
     args = parser.parse_args()

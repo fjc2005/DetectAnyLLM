@@ -25,6 +25,7 @@ class Trainer():
               eval_freq: int = 1,
               save_freq: int = 5,
               save_directory: str='./ckpt/',
+              save_name: str = None,
               DDL_target_original_crit: float = 0.,
               DDL_target_rewritten_crit: float = 100.,
               DPO_beta: float = 0.05,
@@ -127,11 +128,13 @@ class Trainer():
 
             if (epoch + 1) == num_epochs or (epoch + 1) % save_freq == 0:
                 accelerator.print('saving model ...')
-                if not os.path.exists(save_directory):
-                    os.makedirs(save_directory, exist_ok=True)
+                if save_name is None:
+                    raise ValueError('save_name should not be None')
+                if not os.path.exists(os.path.join(save_directory, save_name)):
+                    os.makedirs(os.path.join(save_directory, save_name), exist_ok=True)
                 unwrapped_model = accelerator.unwrap_model(model)
-                unwrapped_model.save_pretrained(save_directory)
-            
+                unwrapped_model.save_pretrained(os.path.join(save_directory, save_name))
+
             if (epoch + 1) == num_epochs:
                 if track_with_wandb:
                     accelerator.end_training()
