@@ -149,6 +149,7 @@ class Trainer():
         epoch_original_discrepancy_eval = []
         epoch_rewritten_discrepancy_eval = []
         model.eval()
+        model, eval_loader = accelerator.prepare(model, eval_loader)
         with torch.no_grad():
             for step, batch in tqdm(enumerate(eval_loader), total=len(eval_loader), desc="Evaluating", disable=not accelerator.is_local_main_process):
                 outputs = model(
@@ -182,5 +183,6 @@ class Trainer():
             accelerator.print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
         
         if return_detail_discrepancy:
-            return original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr, all_original_eval, all_rewritten_eval
+            return original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, \
+                eval_epoch_auroc, eval_epoch_aupr, all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist()
         return original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, eval_epoch_auroc, eval_epoch_aupr

@@ -30,14 +30,14 @@ class DiscrepancyEstimator(nn.Module):
                  reference_tokenizer: AutoTokenizer=None,
                  cache_dir: str=None,
                  train_method: str='DDL',
-                 from_pretrained: str=None,
+                 pretrained_ckpt: str=None,
                  ):
         super().__init__()
         assert train_method in ['DDL', 'SPO'], 'train_method should be DDL or SPO.'
         self.train_method = train_method
-        self.reference_model_name = reference_model_name
-        if from_pretrained is not None:
-            self = self.from_pretrained(from_pretrained)
+        self.cache_dir = cache_dir
+        if pretrained_ckpt is not None:
+            self.load_pretrained(pretrained_ckpt)
         else:
             if scoring_model_name is not None:
                 self.scoring_model_name = scoring_model_name
@@ -72,14 +72,22 @@ class DiscrepancyEstimator(nn.Module):
                                                            cache_dir=cache_dir,)
                 self.reference_model_name = reference_model_name
             else:
-                if train_method == 'DDL':
-                    self.reference_model = None
-                    self.reference_tokenizer = None
-                    self.reference_model_name = None
+                if reference_model is None and reference_tokenizer is None:
+                    if train_method == 'DDL':
+                        self.reference_model = None
+                        self.reference_tokenizer = None
+                        self.reference_model_name = None
+                    else:
+                        self.reference_model = copy.deepcopy(self.scoring_model)
+                        self.reference_tokenizer = self.scoring_tokenizer
+                        self.reference_model_name = self.reference_model.config._name_or_path
+                elif reference_model is not None and reference_tokenizer is not None:
+                    self.reference_model = reference_model
+                    self.reference_tokenizer = reference_tokenizer
+                    self.reference_model_name = reference_model.config._name_or_path
                 else:
-                    self.reference_model = copy.deepcopy(self.scoring_model)
-                    self.reference_tokenizer = self.scoring_tokenizer
-                    self.reference_model_name = self.reference_model.config._name_or_path
+                    raise ValueError('You should provide reference_model and reference_tokenizer at the same time.')
+
             if self.reference_tokenizer is not None:
                 if self.reference_tokenizer.pad_token is None:
                     self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
@@ -102,7 +110,7 @@ class DiscrepancyEstimator(nn.Module):
             self.reference_model.save_pretrained(os.path.join(save_directory, "reference_model"))
             self.reference_tokenizer.save_pretrained(os.path.join(save_directory, "reference_model"))
 
-    def from_pretrained(self, load_directory):
+    def load_pretrained(self, load_directory):
         """
         Load the model's state_dict from the specified directory.
         """
@@ -112,6 +120,7 @@ class DiscrepancyEstimator(nn.Module):
         self.scoring_model = AutoPeftModelForCausalLM.from_pretrained(os.path.join(load_directory, "scoring_model"))
         self.scoring_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "scoring_model"))
         self.scoring_model_name = self.scoring_model.config._name_or_path
+
         if os.path.exists(os.path.join(load_directory, "reference_model")):
             self.reference_model = AutoModelForCausalLM.from_pretrained(os.path.join(load_directory, "reference_model"))
             self.reference_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "reference_model"))
@@ -121,13 +130,19 @@ class DiscrepancyEstimator(nn.Module):
             self.reference_tokenizer = None
             self.reference_model_name = None
 
+        if self.scoring_tokenizer.pad_token is None:
+            self.scoring_tokenizer.pad_token = self.scoring_tokenizer.eos_token
+            self.scoring_tokenizer.pad_token_id = self.scoring_tokenizer.eos_token_id
+        if self.reference_tokenizer is not None:
+            if self.reference_tokenizer.pad_token is None:
+                self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
+                self.reference_tokenizer.pad_token_id = self.reference_tokenizer.eos_token_id
+
         if 'gpt-j' in self.scoring_model_name:
             self.scoring_model.half()
             if self.reference_model is not None:
                 self.reference_model.half()
             self.half()
-        
-        return self
         
 
     def get_sampling_discrepancy_analytic(self, reference_logits, scoring_logits, labels, attention_mask):

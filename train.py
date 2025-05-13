@@ -57,9 +57,9 @@ def main(args):
     if args.ckpt_name is not None:
         project_name = f'{args.ckpt_name}'
     elif args.train_method == 'DDL':
-        project_name = f'DDL_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].strip(".json")}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_rewTgt{args.DDL_target_rewritten_crit}_oriTgt{args.DDL_target_original_crit}_r{args.lora_rank}'
+        project_name = f'DDL_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].split(".json")[0]}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_rewTgt{args.DDL_target_rewritten_crit}_oriTgt{args.DDL_target_original_crit}_r{args.lora_rank}'
     else:
-        project_name = f'SPO_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].strip(".json")}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_beta{args.DPO_beta}_r{args.lora_rank}'
+        project_name = f'SPO_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].split(".json")[0]}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_beta{args.DPO_beta}_r{args.lora_rank}'
 
     
     # Set up accelerator
@@ -70,8 +70,8 @@ def main(args):
                                   config={
                                       'scoring_model_name': args.scoring_model_name,
                                       'train_method': args.train_method,
-                                      'train_data': args.train_data_path.split("/")[-1].strip(".json"),
-                                      'eval_data': args.eval_data_path.split("/")[-1].strip(".json"),
+                                      'train_data': args.train_data_path.split("/")[-1].split(".json")[0],
+                                      'eval_data': args.eval_data_path.split("/")[-1].split(".json")[0],
                                       'lora_rank': args.lora_rank,
                                       'lora_alpha': args.lora_alpha,
                                       'lora_dropout': args.lora_dropout,
