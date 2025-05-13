@@ -24,51 +24,66 @@ class DiscrepancyEstimator(nn.Module):
     def __init__(self,
                  scoring_model_name: str=None,
                  reference_model_name: str=None,
+                 scoring_model: AutoModelForCausalLM=None,
+                 reference_model: AutoModelForCausalLM=None,
+                 scoring_tokenizer: AutoTokenizer=None,
+                 reference_tokenizer: AutoTokenizer=None,
                  cache_dir: str=None,
                  train_method: str='DDL',
+                 from_pretrained: str=None,
                  ):
         super().__init__()
         assert train_method in ['DDL', 'SPO'], 'train_method should be DDL or SPO.'
         self.train_method = train_method
-        self.scoring_model_name = scoring_model_name
         self.reference_model_name = reference_model_name
-        if scoring_model_name is None:
-            raise ValueError('You should provide scoring_model_name.')
+        if from_pretrained is not None:
+            self = self.from_pretrained(from_pretrained)
         else:
-            self.scoring_model = from_pretrained(AutoModelForCausalLM,
-                                                 scoring_model_name,
-                                                 cache_dir=cache_dir,
-                                                 kwargs={})
-            self.scoring_tokenizer = from_pretrained(AutoTokenizer,
+            if scoring_model_name is not None:
+                self.scoring_model_name = scoring_model_name
+                self.scoring_model = from_pretrained(AutoModelForCausalLM,
                                                      scoring_model_name,
-                                                     kwargs={'padding_side': 'right',
-                                                             'use_fast': True if 'facebook/opt-' not in scoring_model_name else False},
-                                                     cache_dir=cache_dir,)
+                                                     cache_dir=cache_dir,
+                                                     kwargs={})
+                self.scoring_tokenizer = from_pretrained(AutoTokenizer,
+                                                         scoring_model_name,
+                                                         kwargs={'padding_side': 'right',
+                                                                 'use_fast': True if 'facebook/opt-' not in scoring_model_name else False},
+                                                         cache_dir=cache_dir,)
+            else:
+                if scoring_model is None or scoring_tokenizer is None:
+                    raise ValueError('You should provide scoring_model_name or scoring_model and scoring_tokenizer.')
+                self.scoring_model = scoring_model
+                self.scoring_tokenizer = scoring_tokenizer
+                self.scoring_model_name = scoring_model.config._name_or_path
             if self.scoring_tokenizer.pad_token is None:
                 self.scoring_tokenizer.pad_token = self.scoring_tokenizer.eos_token
                 self.scoring_tokenizer.pad_token_id = self.scoring_tokenizer.eos_token_id
-        if reference_model_name is None:
-            if train_method == 'DDL':
-                self.reference_model = None
-                self.reference_tokenizer = None
-            elif train_method == 'SPO':
-                self.reference_model = copy.deepcopy(self.scoring_model)
-                self.reference_tokenizer = self.scoring_tokenizer
-            else:
-                raise ValueError('train_method should be DDL or SPO.')
-        else:
-            self.reference_model = from_pretrained(AutoModelForCausalLM,
-                                                   reference_model_name,
-                                                   cache_dir=cache_dir,
-                                                   kwargs={})
-            self.reference_tokenizer = from_pretrained(AutoTokenizer,
+
+            if reference_model_name is not None:
+                self.reference_model = from_pretrained(AutoModelForCausalLM,
                                                        reference_model_name,
-                                                       kwargs={'padding_side': 'right',
-                                                               'use_fast': True if 'facebook/opt-' not in reference_model_name else False},
-                                                       cache_dir=cache_dir,)
-            if self.reference_tokenizer.pad_token is None:
-                self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
-                self.reference_tokenizer.pad_token_id = self.reference_tokenizer.eos_token_id
+                                                       cache_dir=cache_dir,
+                                                       kwargs={})
+                self.reference_tokenizer = from_pretrained(AutoTokenizer,
+                                                           reference_model_name,
+                                                           kwargs={'padding_side': 'right',
+                                                                   'use_fast': True if 'facebook/opt-' not in reference_model_name else False},
+                                                           cache_dir=cache_dir,)
+                self.reference_model_name = reference_model_name
+            else:
+                if train_method == 'DDL':
+                    self.reference_model = None
+                    self.reference_tokenizer = None
+                    self.reference_model_name = None
+                else:
+                    self.reference_model = copy.deepcopy(self.scoring_model)
+                    self.reference_tokenizer = self.scoring_tokenizer
+                    self.reference_model_name = self.reference_model.config._name_or_path
+            if self.reference_tokenizer is not None:
+                if self.reference_tokenizer.pad_token is None:
+                    self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
+                    self.reference_tokenizer.pad_token_id = self.reference_tokenizer.eos_token_id
             
     def add_lora_config(self, lora_config: LoraConfig):
         self.lora_config = lora_config
@@ -83,6 +98,9 @@ class DiscrepancyEstimator(nn.Module):
         # torch.save(self.state_dict(), os.path.join(save_directory, "model.bin"))
         self.scoring_model.save_pretrained(os.path.join(save_directory, "scoring_model"))
         self.scoring_tokenizer.save_pretrained(os.path.join(save_directory, "scoring_model"))
+        if self.reference_model is not None:
+            self.reference_model.save_pretrained(os.path.join(save_directory, "reference_model"))
+            self.reference_tokenizer.save_pretrained(os.path.join(save_directory, "reference_model"))
 
     def from_pretrained(self, load_directory):
         """
@@ -93,11 +111,24 @@ class DiscrepancyEstimator(nn.Module):
 
         self.scoring_model = AutoPeftModelForCausalLM.from_pretrained(os.path.join(load_directory, "scoring_model"))
         self.scoring_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "scoring_model"))
+        self.scoring_model_name = self.scoring_model.config._name_or_path
+        if os.path.exists(os.path.join(load_directory, "reference_model")):
+            self.reference_model = AutoModelForCausalLM.from_pretrained(os.path.join(load_directory, "reference_model"))
+            self.reference_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "reference_model"))
+            self.reference_model_name = self.reference_model.config._name_or_path
+        else:
+            self.reference_model = None
+            self.reference_tokenizer = None
+            self.reference_model_name = None
+
         if 'gpt-j' in self.scoring_model_name:
             self.scoring_model.half()
             if self.reference_model is not None:
                 self.reference_model.half()
             self.half()
+        
+        return self
+        
 
     def get_sampling_discrepancy_analytic(self, reference_logits, scoring_logits, labels, attention_mask):
 
