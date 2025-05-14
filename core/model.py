@@ -96,7 +96,6 @@ class DiscrepancyEstimator(nn.Module):
     def add_lora_config(self, lora_config: LoraConfig):
         self.lora_config = lora_config
         self.scoring_model = get_peft_model(self.scoring_model, self.lora_config)
-        self.scoring_model.print_trainable_parameters()
 
     def save_pretrained(self, save_directory):
         """

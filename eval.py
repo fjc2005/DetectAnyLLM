@@ -35,7 +35,7 @@ parser.add_argument('--save_file', type=str, default=None, help='The file to sav
 def main(args):
     if args.wandb:
         os.makedirs(args.wandb_dir, exist_ok=True)
-        os.environ["WANDB_DIR"] = args.wandb_dir  # 关键修改：指定日志目录
+        os.environ["WANDB_DIR"] = args.wandb_dir  # 指定日志目录
     if args.save_file is not None:
         save_name = f'{args.save_file}'
     elif args.pretrained_model_name_or_path is not None:
@@ -49,14 +49,14 @@ def main(args):
         import wandb
         accelerator = Accelerator(log_with='wandb')
         if args.pretrained_model_name_or_path is not None:
-            accelerator.init_trackers(project_name=f'{save_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}',
-                                    config={
-                                        'pretrained_model_name_or_path': args.pretrained_model_name_or_path,
-                                        'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
-                                        'eval_batch_size': args.eval_batch_size,
-                                        'wandb_dir': args.wandb_dir,
-                                    },
-                                    init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
+            accelerator.init_trackers(project_name=f'eval_{save_name[:100]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}',
+                                      config={
+                                          'pretrained_model_name_or_path': args.pretrained_model_name_or_path,
+                                          'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
+                                          'eval_batch_size': args.eval_batch_size,
+                                          'wandb_dir': args.wandb_dir,
+                                      },
+                                      init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
     else:
         accelerator = Accelerator()
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
@@ -70,45 +70,59 @@ def main(args):
                                  data_format=args.eval_data_format)
     eval_loader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False,
                              collate_fn=eval_dataset.collate_fn)
+    
+    model, eval_dataset, eval_loader = accelerator.prepare(model, eval_dataset, eval_loader)
+
+    # Evaluate
     trainer = Trainer()
 
-    original_discrepancy_mean, original_discrepancy_std, rewritten_discrepancy_mean, rewritten_discrepancy_std, \
-        eval_auroc, eval_aupr, all_original_eval, all_rewritten_eval = trainer.eval(accelerator, model, eval_loader, return_detail_discrepancy=True)
-    
-    best_mcc = 0.
-    best_balanced_accuracy = 0.
-    all_discrepancy = all_original_eval + all_rewritten_eval
-    for threshold in tqdm(all_discrepancy, total=len(all_discrepancy), desc="Finding best threshold"):
-        mcc = MCC(all_original_eval, all_rewritten_eval, threshold)
-        balanced_accuracy = Balanced_Accuracy(all_original_eval, all_rewritten_eval, threshold)
-        if mcc > best_mcc:
-            best_mcc = mcc
-        if balanced_accuracy > best_balanced_accuracy:
-            best_balanced_accuracy = balanced_accuracy
-    accelerator.print(f'Eval MCC: {best_mcc:.4f} | Eval Balanced Accuracy: {best_balanced_accuracy:.4f}')
-    
-    result_dict = {
-        'ckpt_name': args.pretrained_model_name_or_path if args.pretrained_model_name_or_path is not None else args.scoring_model_name,
-        'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
-        'eval_batch_size': args.eval_batch_size,
-        'original_discrepancy_mean': original_discrepancy_mean,
-        'original_discrepancy_std': original_discrepancy_std,
-        'rewritten_discrepancy_mean': rewritten_discrepancy_mean,
-        'rewritten_discrepancy_std': rewritten_discrepancy_std,
-        'AUROC': eval_auroc,
-        'AUPR': eval_aupr,
-        'BEST_MCC': best_mcc,
-        'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
-        'original_discrepancy': all_original_eval,
-        'rewritten_discrepancy': all_rewritten_eval,
-    }
-    accelerator.log(result_dict, step=0)
+    local_original_eval, local_rewritten_eval = trainer.eval(model, eval_loader, show_progress_bar=accelerator.is_main_process)
+    accelerator.wait_for_everyone()
 
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir)
+    all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
+    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
+    if accelerator.is_main_process:
+        fpr, tpr, eval_auroc = AUROC(all_original_eval, all_rewritten_eval)
+        prec, recall, eval_aupr = AUPR(all_original_eval, all_rewritten_eval)
+        original_discrepancy_mean = torch.mean(torch.tensor(all_original_eval)).item()
+        original_discrepancy_std = torch.std(torch.tensor(all_original_eval)).item()
+        rewritten_discrepancy_mean = torch.mean(torch.tensor(all_rewritten_eval)).item()
+        rewritten_discrepancy_std = torch.std(torch.tensor(all_rewritten_eval)).item()
+        accelerator.print(f'Eval AUROC: {eval_auroc:.4f} | Eval AUPR: {eval_aupr:.4f}')
+        best_mcc = 0.
+        best_balanced_accuracy = 0.
+        all_discrepancy = all_original_eval + all_rewritten_eval
+        for threshold in tqdm(all_discrepancy, total=len(all_discrepancy), desc="Finding best threshold"):
+            mcc = MCC(all_original_eval, all_rewritten_eval, threshold)
+            balanced_accuracy = Balanced_Accuracy(all_original_eval, all_rewritten_eval, threshold)
+            if mcc > best_mcc:
+                best_mcc = mcc
+            if balanced_accuracy > best_balanced_accuracy:
+                best_balanced_accuracy = balanced_accuracy
+        accelerator.print(f'Eval MCC: {best_mcc:.4f} | Eval Balanced Accuracy: {best_balanced_accuracy:.4f}')
+    
+        result_dict = {
+            'ckpt_name': args.pretrained_model_name_or_path if args.pretrained_model_name_or_path is not None else args.scoring_model_name,
+            'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
+            'eval_batch_size': args.eval_batch_size,
+            'original_discrepancy_mean': original_discrepancy_mean,
+            'original_discrepancy_std': original_discrepancy_std,
+            'rewritten_discrepancy_mean': rewritten_discrepancy_mean,
+            'rewritten_discrepancy_std': rewritten_discrepancy_std,
+            'AUROC': eval_auroc,
+            'AUPR': eval_aupr,
+            'BEST_MCC': best_mcc,
+            'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
+            'original_discrepancy': all_original_eval,
+            'rewritten_discrepancy': all_rewritten_eval,
+        }
+        accelerator.log(result_dict, step=0)
 
-    with open(os.path.join(args.save_dir, f'{save_name.strip(".json")}.json'), 'w', encoding='utf-8') as f:
-        f.write(json.dumps(result_dict, ensure_ascii=False, indent=4))
+        if not os.path.exists(args.save_dir):
+            os.makedirs(args.save_dir)
+
+        with open(os.path.join(args.save_dir, f'{save_name.strip(".json")}.json'), 'w', encoding='utf-8') as f:
+            f.write(json.dumps(result_dict, ensure_ascii=False, indent=4))
 
 if __name__ == '__main__':
     args = parser.parse_args()

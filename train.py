@@ -88,7 +88,8 @@ def main(args):
                                   init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
     else:
         accelerator = Accelerator()
-    accelerator.print(args)
+    if accelerator.is_main_process:
+        accelerator.print(args)
 
     # Set up model
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
@@ -103,6 +104,8 @@ def main(args):
             lora_dropout=args.lora_dropout
         )
     model.add_lora_config(lora_config)
+    if accelerator.is_main_process:
+        model.scoring_model.print_trainable_parameters()
 
     # Set up dataset
     train_dataset = CustomDataset(data_path=args.train_data_path,
