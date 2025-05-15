@@ -44,7 +44,7 @@ class DiscrepancyEstimator(nn.Module):
                 self.scoring_model = from_pretrained(AutoModelForCausalLM,
                                                      scoring_model_name,
                                                      cache_dir=cache_dir,
-                                                     kwargs={})
+                                                     kwargs=dict(torch_dtype=torch.float16))
                 self.scoring_tokenizer = from_pretrained(AutoTokenizer,
                                                          scoring_model_name,
                                                          kwargs={'padding_side': 'right',
@@ -64,7 +64,7 @@ class DiscrepancyEstimator(nn.Module):
                 self.reference_model = from_pretrained(AutoModelForCausalLM,
                                                        reference_model_name,
                                                        cache_dir=cache_dir,
-                                                       kwargs={})
+                                                       kwargs=dict(torch_dtype=torch.float16))
                 self.reference_tokenizer = from_pretrained(AutoTokenizer,
                                                            reference_model_name,
                                                            kwargs={'padding_side': 'right',
@@ -116,12 +116,12 @@ class DiscrepancyEstimator(nn.Module):
         if not os.path.exists(load_directory):
             raise ValueError(f"Directory {load_directory} does not exist.")
 
-        self.scoring_model = AutoPeftModelForCausalLM.from_pretrained(os.path.join(load_directory, "scoring_model"))
+        self.scoring_model = AutoPeftModelForCausalLM.from_pretrained(os.path.join(load_directory, "scoring_model"), torch_dtype=torch.float16)
         self.scoring_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "scoring_model"))
         self.scoring_model_name = self.scoring_model.config._name_or_path
 
         if os.path.exists(os.path.join(load_directory, "reference_model")):
-            self.reference_model = AutoModelForCausalLM.from_pretrained(os.path.join(load_directory, "reference_model"))
+            self.reference_model = AutoModelForCausalLM.from_pretrained(os.path.join(load_directory, "reference_model"), torch_dtype=torch.float16)
             self.reference_tokenizer = AutoTokenizer.from_pretrained(os.path.join(load_directory, "reference_model"))
             self.reference_model_name = self.reference_model.config._name_or_path
         else:
@@ -136,12 +136,6 @@ class DiscrepancyEstimator(nn.Module):
             if self.reference_tokenizer.pad_token is None:
                 self.reference_tokenizer.pad_token = self.reference_tokenizer.eos_token
                 self.reference_tokenizer.pad_token_id = self.reference_tokenizer.eos_token_id
-
-        if 'gpt-j' in self.scoring_model_name:
-            self.scoring_model.half()
-            if self.reference_model is not None:
-                self.reference_model.half()
-            self.half()
         
 
     def get_sampling_discrepancy_analytic(self, reference_logits, scoring_logits, labels, attention_mask):
