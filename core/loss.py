@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 
+
 def calculate_DPO_loss(model_prefered_logprob, model_disprefered_logprob,
                        ref_prefered_logprob, ref_disprefered_logprob,
                        beta=0.5):

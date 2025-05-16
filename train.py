@@ -28,9 +28,9 @@ parser.add_argument('--lora_rank', type=int, default=8, help='The rank of LoRA. 
 parser.add_argument('--lora_alpha', type=float, default=32., help='The alpha of LoRA. Default: 32.')
 parser.add_argument('--lora_dropout', type=float, default=0.1, help='The dropout of LoRA. Default: 0.1.')
 # Data
-parser.add_argument('--train_data_path', type=str, default='./data/DIG/polish.json', help='The path to the training data. Default: ./data/DIG/polish.json.')
+parser.add_argument('--train_data_path', type=str, default='./data/MIRAGE_BENCH/DIG/polish.json', help='The path to the training data. Default: ./data/DIG/polish.json.')
 parser.add_argument('--train_data_format', type=str, default='MIRAGE', help='The format of the training data. Should be MIRAGE or ImBD. Default: MIRAGE.')
-parser.add_argument('--eval_data_path', type=str, default='./data/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
+parser.add_argument('--eval_data_path', type=str, default='./data/MIRAGE_BENCH/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
 parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The format of the evaluation data. Should be MIRAGE or ImBD. Default: MIRAGE.')
 parser.add_argument('--train_batch_size', type=int, default=1, help='The batch size of training data. Default: 1.')
 parser.add_argument('--eval_batch_size', type=int, default=1, help='The batch size of evaluation data. Default: 1.')
@@ -114,11 +114,11 @@ def main(args):
                                   data_format=args.train_data_format)
     eval_dataset = CustomDataset(data_path=args.eval_data_path,
                                  scoring_tokenizer=model.scoring_tokenizer,
-                                 reference_tokenizer=model.reference_tokenizer,
+                                 reference_tokenizer=None,
                                  data_format=args.eval_data_format)
 
     # Set up loss function
-    assert args.train_method in ['DDL', 'DPO'], "Invalid loss function"
+    assert args.train_method in ['DDL', 'SPO'], "Invalid loss function"
     if args.train_method == 'DDL':
         loss_fn = calculate_DDL_loss
     else:

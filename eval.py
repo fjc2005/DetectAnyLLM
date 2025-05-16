@@ -10,19 +10,19 @@ from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from core.model import DiscrepancyEstimator
 from core.dataset import CustomDataset
-from core.metrics import AUROC, AUPR, MCC, Balanced_Accuracy
+from core.metrics import AUROC, AUPR, MCC, Balanced_Accuracy, TPR_at_FPR5
 from core.trainer import Trainer
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 # Model
-parser.add_argument('--scoring_model_name', type=str, default='gpt-neo-2.7b', help='The name of the scoring model. Default: gpt-neo-2.7b.')
+parser.add_argument('--scoring_model_name', type=str, default='gpt-neo-2.7B', help='The name of the scoring model. Default: gpt-neo-2.7B.')
 parser.add_argument('--reference_model_name', type=str, default=None, help='The name of the reference model. Default: None. Which indicates that the reference model is the same as the scoring model when using DPO and None when using DDL.')
 parser.add_argument('--cache_dir', type=str, default='./model/', help='The directory to cache the models. Default: ./model/')
 parser.add_argument('--train_method', type=str, default='DDL', help='The training method. Should be DDL or SPO. Default: DDL.')
 parser.add_argument('--pretrained_model_name_or_path', type=str, default=None, help='Pass a pretrained model name or path to load the pretrained model. Default: None.')
 # Dataset
-parser.add_argument('--eval_data_path', type=str, default='./data/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
+parser.add_argument('--eval_data_path', type=str, default='./data/MIRAGE_BENCH/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
 parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The format of the evaluation data. Should be MIRAGE or ImBD. Default: MIRAGE.')
 parser.add_argument('--eval_batch_size', type=int, default=1, help='The batch size for evaluation. Default: 1.')
 # WandB
@@ -32,17 +32,22 @@ parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directo
 parser.add_argument('--save_dir', type=str, default='./results/', help='The directory to save the evaluation results. Default: ./results/.')
 parser.add_argument('--save_file', type=str, default=None, help='The file to save the evaluation results. Default: None.')
 
+
 def main(args):
+    model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
+                                reference_model_name=args.reference_model_name,
+                                cache_dir=args.cache_dir,
+                                train_method=args.train_method,
+                                pretrained_ckpt=args.pretrained_model_name_or_path)
     if args.wandb:
         os.makedirs(args.wandb_dir, exist_ok=True)
         os.environ["WANDB_DIR"] = args.wandb_dir  # 指定日志目录
     if args.save_file is not None:
         save_name = f'{args.save_file}'
-    elif args.pretrained_model_name_or_path is not None:
-        save_name = f'{args.pretrained_model_name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
+    elif model.reference_model is None:
+        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     else:
-        save_name = f'{args.scoring_model_name}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
-
+        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{model.reference_model.config._name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     
     # Set up accelerator
     if args.wandb == True:
@@ -59,19 +64,17 @@ def main(args):
                                       init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
     else:
         accelerator = Accelerator()
-    model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
-                                 reference_model_name=args.reference_model_name,
-                                 cache_dir=args.cache_dir,
-                                 train_method=args.train_method,
-                                 pretrained_ckpt=args.pretrained_model_name_or_path)
+    
     eval_dataset = CustomDataset(args.eval_data_path,
                                  scoring_tokenizer=model.scoring_tokenizer,
-                                 reference_tokenizer=model.reference_tokenizer,
+                                 reference_tokenizer=None,
                                  data_format=args.eval_data_format)
     eval_loader = DataLoader(eval_dataset, batch_size=args.eval_batch_size, shuffle=False,
                              collate_fn=eval_dataset.collate_fn)
     
     model, eval_dataset, eval_loader = accelerator.prepare(model, eval_dataset, eval_loader)
+    print(model.scoring_model.config._name_or_path)
+    print(model.reference_model.config._name_or_path)
 
     # Evaluate
     trainer = Trainer()
@@ -84,6 +87,7 @@ def main(args):
     if accelerator.is_main_process:
         fpr, tpr, eval_auroc = AUROC(all_original_eval, all_rewritten_eval)
         prec, recall, eval_aupr = AUPR(all_original_eval, all_rewritten_eval)
+        tpr_at_5 = TPR_at_FPR5(all_original_eval, all_rewritten_eval)
         original_discrepancy_mean = torch.mean(torch.tensor(all_original_eval)).item()
         original_discrepancy_std = torch.std(torch.tensor(all_original_eval)).item()
         rewritten_discrepancy_mean = torch.mean(torch.tensor(all_rewritten_eval)).item()
@@ -113,6 +117,7 @@ def main(args):
             'AUPR': eval_aupr,
             'BEST_MCC': best_mcc,
             'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
+            'TPR_AT_FPT_5%': tpr_at_5,
             'original_discrepancy': all_original_eval,
             'rewritten_discrepancy': all_rewritten_eval,
         }

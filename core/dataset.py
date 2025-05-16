@@ -46,16 +46,16 @@ class CustomDataset(Dataset):
 
         return {
             'scoring':{
-                'original_input_ids': original_tokens_for_scoring_model['input_ids'],
-                'original_attention_mask': original_tokens_for_scoring_model['attention_mask'],
-                'rewritten_input_ids': rewritten_tokens_for_scoring_model['input_ids'],
-                'rewritten_attention_mask': rewritten_tokens_for_scoring_model['attention_mask']
+                'original_input_ids': original_tokens_for_scoring_model["input_ids"],
+                'original_attention_mask': original_tokens_for_scoring_model["attention_mask"],
+                'rewritten_input_ids': rewritten_tokens_for_scoring_model["input_ids"],
+                'rewritten_attention_mask': rewritten_tokens_for_scoring_model["attention_mask"]
             },
             'reference':{
-                'original_input_ids': original_tokens_for_reference_model['input_ids'],
-                'original_attention_mask': original_tokens_for_reference_model['attention_mask'],
-                'rewritten_input_ids': rewritten_tokens_for_reference_model['input_ids'],
-                'rewritten_attention_mask': rewritten_tokens_for_reference_model['attention_mask']
+                'original_input_ids': original_tokens_for_reference_model["input_ids"],
+                'original_attention_mask': original_tokens_for_reference_model["attention_mask"],
+                'rewritten_input_ids': rewritten_tokens_for_reference_model["input_ids"],
+                'rewritten_attention_mask': rewritten_tokens_for_reference_model["attention_mask"]
             }
         }
     

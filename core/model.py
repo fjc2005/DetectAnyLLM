@@ -160,7 +160,7 @@ class DiscrepancyEstimator(nn.Module):
         discrepancy = (log_likelihood_sum - mean_ref_sum) / (var_ref_sum.sqrt() + 1e-8)  # [bsz], avoid division by zero
         
         return discrepancy, log_likelihood_sum
-    
+
     def get_discrepancy_of_scoring_and_reference_models(self,
                                                         input_ids_for_scoring_model,
                                                         attention_mask_for_scoring_model,
@@ -170,9 +170,8 @@ class DiscrepancyEstimator(nn.Module):
         labels = input_ids_for_scoring_model[:, 1:] # shape: [bsz, sentence_len - 1]
         scoring_logits = self.scoring_model(input_ids_for_scoring_model,
                                             attention_mask=attention_mask_for_scoring_model).logits[:,:-1,:]
-        if self.reference_model is not None:
-            assert input_ids_for_reference_model is not None and attention_mask_for_reference_model is not None, \
-                "If reference_model is provided, you should provide reference_tokenizer to dataset initialization."
+        if input_ids_for_reference_model is not None:
+            assert self.reference_model is not None, "You should provide reference_model."
             with torch.no_grad():
                 # check if tokenizer is the match
                 reference_labels = input_ids_for_reference_model[:, 1:] # shape: [bsz, sentence_len]
@@ -183,12 +182,12 @@ class DiscrepancyEstimator(nn.Module):
         else:
             reference_logits = scoring_logits
 
-        if self.reference_model is not None:
+        if input_ids_for_reference_model is not None:
             discrepancy_ref, logprob_ref = self.get_sampling_discrepancy_analytic(reference_logits, reference_logits,
                                                                                   labels, attention_mask=attention_mask_for_reference_model)
         else:
             discrepancy_ref, logprob_ref = None, None
-        discrepancy_score, logprob_score = self.get_sampling_discrepancy_analytic(reference_logits, scoring_logits,
+        discrepancy_score, logprob_score = self.get_sampling_discrepancy_analytic(scoring_logits, scoring_logits,
                                                                                   labels, attention_mask=attention_mask_for_scoring_model)
 
         return {
@@ -208,18 +207,6 @@ class DiscrepancyEstimator(nn.Module):
                 reference_rewritten_input_ids=None,
                 reference_rewritten_attention_mask=None,
                 ) -> dict:
-        if self.train_method == 'SPO':
-            assert reference_original_input_ids is not None and reference_original_attention_mask is not None, \
-                "If train_method is SPO, you should provide reference_original_input_ids and reference_original_attention_mask."
-            assert reference_rewritten_input_ids is not None and reference_rewritten_attention_mask is not None, \
-                "If train_method is SPO, you should provide reference_rewritten_input_ids and reference_rewritten_attention_mask."
-        elif self.train_method == 'DDL':
-            assert reference_original_input_ids is None and reference_original_attention_mask is None, \
-                "If train_method is DDL, you should not provide reference_original_input_ids and reference_original_attention_mask."
-            assert reference_rewritten_input_ids is None and reference_rewritten_attention_mask is None, \
-                "If train_method is DDL, you should not provide reference_rewritten_input_ids and reference_rewritten_attention_mask."
-        else:
-            raise ValueError('train_method should be DDL or SPO.')
         original_output = self.get_discrepancy_of_scoring_and_reference_models(
             input_ids_for_scoring_model=scoring_original_input_ids,
             attention_mask_for_scoring_model=scoring_original_attention_mask,

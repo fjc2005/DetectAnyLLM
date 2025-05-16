@@ -132,6 +132,8 @@ class Trainer():
                         "eval/rewritten_discrepancy_mean": rewritten_discrepancy_mean,
                         "eval/rewritten_discrepancy_std": rewritten_discrepancy_std,
                     })
+                    accelerator.print(f'Original Discrepancy: {original_discrepancy_mean:.2f} ± {original_discrepancy_std:.2f} | Rewritten Discrepancy: {rewritten_discrepancy_mean:.2f} ± {rewritten_discrepancy_std:.2f}')
+                    accelerator.print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
 
             if track_with_wandb and accelerator.is_main_process:
                 accelerator.log(log_dict, step=(epoch + 1) * len(train_loader))
