@@ -35,33 +35,36 @@ parser.add_argument('--save_file', type=str, default=None, help='The file to sav
 
 def main(args):
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
-                                reference_model_name=args.reference_model_name,
-                                cache_dir=args.cache_dir,
-                                train_method=args.train_method,
-                                pretrained_ckpt=args.pretrained_model_name_or_path)
+                                 reference_model_name=args.reference_model_name,
+                                 cache_dir=args.cache_dir,
+                                 train_method=args.train_method,
+                                 pretrained_ckpt=args.pretrained_model_name_or_path)
     if args.wandb:
         os.makedirs(args.wandb_dir, exist_ok=True)
         os.environ["WANDB_DIR"] = args.wandb_dir  # 指定日志目录
     if args.save_file is not None:
         save_name = f'{args.save_file}'
-    elif model.reference_model is None:
-        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     else:
-        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{model.reference_model.config._name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
+        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{"None" if model.reference_model_name is None else model.reference_model_name.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     
     # Set up accelerator
     if args.wandb == True:
         import wandb
         accelerator = Accelerator(log_with='wandb')
         if args.pretrained_model_name_or_path is not None:
-            accelerator.init_trackers(project_name=f'eval_{save_name[:100]}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}',
+            accelerator.init_trackers(project_name=f'Evaluate_Machine_Generate_Text_Detection',
                                       config={
-                                          'pretrained_model_name_or_path': args.pretrained_model_name_or_path,
-                                          'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
+                                          'scoring_model_name': model.scoring_model_name,
+                                          'train_method': args.train_method,
+                                          'reference_model_name': model.reference_model_name if model.reference_model_name is not None else 'None',
+                                          'pretrained_model_name_or_path': args.pretrained_model_name_or_path if args.pretrained_model_name_or_path is not None else 'None',
+                                          'eval_dataset': args.eval_data_path,
                                           'eval_batch_size': args.eval_batch_size,
                                           'wandb_dir': args.wandb_dir,
+                                          'result_file': save_name,
                                       },
-                                      init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
+                                      init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
+                                                             "name": f"{save_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"}})
     else:
         accelerator = Accelerator()
     

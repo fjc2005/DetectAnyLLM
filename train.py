@@ -51,46 +51,6 @@ parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directo
 
 
 def main(args):
-    if args.wandb:
-        os.makedirs(args.wandb_dir, exist_ok=True)
-        os.environ["WANDB_DIR"] = args.wandb_dir  # 关键修改：指定日志目录
-    if args.ckpt_name is not None:
-        project_name = f'{args.ckpt_name}'
-    elif args.train_method == 'DDL':
-        project_name = f'DDL_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].split(".json")[0]}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_rewTgt{args.DDL_target_rewritten_crit}_oriTgt{args.DDL_target_original_crit}_r{args.lora_rank}'
-    else:
-        project_name = f'SPO_{args.scoring_model_name}_{args.train_data_path.split("/")[-1].split(".json")[0]}_e{args.num_epochs}_lr{args.learning_rate}_bs{args.train_batch_size}_beta{args.DPO_beta}_r{args.lora_rank}'
-
-    
-    # Set up accelerator
-    if args.wandb == True:
-        import wandb
-        accelerator = Accelerator(log_with='wandb')
-        accelerator.init_trackers(project_name=f'{project_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}',
-                                  config={
-                                      'scoring_model_name': args.scoring_model_name,
-                                      'train_method': args.train_method,
-                                      'train_data': args.train_data_path.split("/")[-1].split(".json")[0],
-                                      'eval_data': args.eval_data_path.split("/")[-1].split(".json")[0],
-                                      'lora_rank': args.lora_rank,
-                                      'lora_alpha': args.lora_alpha,
-                                      'lora_dropout': args.lora_dropout,
-                                      'learning_rate': args.learning_rate,
-                                      'num_epochs': args.num_epochs,
-                                      'train_batch_size': args.train_batch_size,
-                                      'eval_batch_size': args.eval_batch_size,
-                                      'DDL_target_original_crit': args.DDL_target_original_crit,
-                                      'DDL_target_rewritten_crit': args.DDL_target_rewritten_crit,
-                                      'DPO_beta': args.DPO_beta,
-                                      'ckpt_name': args.ckpt_name,
-                                      'wandb_dir': args.wandb_dir,
-                                  },
-                                  init_kwargs={"wandb": {"entity": "fujiachen-nankai-university"}})
-    else:
-        accelerator = Accelerator()
-    if accelerator.is_main_process:
-        accelerator.print(args)
-
     # Set up model
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
                                  reference_model_name=args.reference_model_name,
@@ -104,6 +64,49 @@ def main(args):
             lora_dropout=args.lora_dropout
         )
     model.add_lora_config(lora_config)
+
+    if args.wandb:
+        os.makedirs(args.wandb_dir, exist_ok=True)
+        os.environ["WANDB_DIR"] = args.wandb_dir  # 关键修改：指定日志目录
+    if args.ckpt_name is not None:
+        run_name = f'{args.ckpt_name}'
+    elif args.train_method == 'DDL':
+        run_name = f'DDL_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{"None" if model.reference_model_name is None else model.reference_model_name.split("/")[-1]}_{args.train_data_path.split("/")[-1].split(".json")[0]}_lr{args.learning_rate}_bs{args.train_batch_size}_rewTgt{args.DDL_target_rewritten_crit}_oriTgt{args.DDL_target_original_crit}_r{args.lora_rank}'
+    else:
+        run_name = f'SPO_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{"None" if model.reference_model_name is None else model.reference_model_name.split("/")[-1]}_{args.train_data_path.split("/")[-1].split(".json")[0]}_lr{args.learning_rate}_bs{args.train_batch_size}_beta{args.DPO_beta}_r{args.lora_rank}'
+    
+    # Set up accelerator
+    if args.wandb == True:
+        import wandb
+        accelerator = Accelerator(log_with='wandb')
+        accelerator.init_trackers(project_name=f'Train_Machine_Generate_Text_Detection',
+                                  config={
+                                      'scoring_model_name': model.scoring_model_name,
+                                      'reference_model_name': model.reference_model_name if model.reference_model_name is not None else 'None',
+                                      'train_method': args.train_method,
+                                      'train_data': args.train_data_path,
+                                      'eval_data': args.eval_data_path,
+                                      'lora_rank': args.lora_rank,
+                                      'lora_alpha': args.lora_alpha,
+                                      'lora_dropout': args.lora_dropout,
+                                      'learning_rate': args.learning_rate,
+                                      'num_epochs': args.num_epochs,
+                                      'train_batch_size': args.train_batch_size,
+                                      'eval_batch_size': args.eval_batch_size,
+                                      'DDL_target_original_crit': args.DDL_target_original_crit,
+                                      'DDL_target_rewritten_crit': args.DDL_target_rewritten_crit,
+                                      'DPO_beta': args.DPO_beta,
+                                      'ckpt_name': args.ckpt_name,
+                                      'wandb_dir': args.wandb_dir,
+                                      'eval_freq': args.eval_freq,
+                                  },
+                                  init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
+                                                         "name": f'{run_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}'}})
+    else:
+        accelerator = Accelerator()
+    if accelerator.is_main_process:
+        accelerator.print(args)
+
     if accelerator.is_main_process:
         model.scoring_model.print_trainable_parameters()
 
@@ -143,7 +146,7 @@ def main(args):
                   DDL_target_rewritten_crit=args.DDL_target_rewritten_crit,
                   DPO_beta=args.DPO_beta,
                   track_with_wandb=args.wandb,
-                  save_name=project_name)
+                  save_name=run_name)
     
 if __name__ == '__main__':
     args = parser.parse_args()

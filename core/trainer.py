@@ -145,9 +145,10 @@ class Trainer():
                     raise ValueError('save_name should not be None')
                 if not os.path.exists(os.path.join(save_directory, save_name)):
                     os.makedirs(os.path.join(save_directory, save_name), exist_ok=True)
+                this_epoch_save_name = f'{save_name}_e{epoch+1}'
                 if accelerator.is_main_process:
                     unwrapped_model = accelerator.unwrap_model(model)
-                    unwrapped_model.save_pretrained(os.path.join(save_directory, save_name))
+                    unwrapped_model.save_pretrained(os.path.join(save_directory, this_epoch_save_name))
 
             if (epoch + 1) == num_epochs:
                 if track_with_wandb:
