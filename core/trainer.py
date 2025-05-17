@@ -134,7 +134,7 @@ class Trainer():
                     })
                     accelerator.print(f'Original Discrepancy: {original_discrepancy_mean:.2f} ± {original_discrepancy_std:.2f} | Rewritten Discrepancy: {rewritten_discrepancy_mean:.2f} ± {rewritten_discrepancy_std:.2f}')
                     accelerator.print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
-
+            accelerator.wait_for_everyone()
             if track_with_wandb and accelerator.is_main_process:
                 accelerator.log(log_dict, step=(epoch + 1) * len(train_loader))
 
@@ -143,9 +143,9 @@ class Trainer():
                 accelerator.print('saving model ...')
                 if save_name is None:
                     raise ValueError('save_name should not be None')
-                if not os.path.exists(os.path.join(save_directory, save_name)):
-                    os.makedirs(os.path.join(save_directory, save_name), exist_ok=True)
                 this_epoch_save_name = f'{save_name}_e{epoch+1}'
+                if not os.path.exists(os.path.join(save_directory, this_epoch_save_name)):
+                    os.makedirs(os.path.join(save_directory, this_epoch_save_name), exist_ok=True)
                 if accelerator.is_main_process:
                     unwrapped_model = accelerator.unwrap_model(model)
                     unwrapped_model.save_pretrained(os.path.join(save_directory, this_epoch_save_name))
