@@ -50,6 +50,7 @@ def main(args):
     # Set up accelerator
     if args.wandb == True:
         import wandb
+        now_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         accelerator = Accelerator(log_with='wandb')
         if args.pretrained_model_name_or_path is not None:
             accelerator.init_trackers(project_name=f'Evaluate_Machine_Generate_Text_Detection',
@@ -64,7 +65,7 @@ def main(args):
                                           'result_file': save_name,
                                       },
                                       init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
-                                                             "name": f"{save_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"}})
+                                                             "name": f"{save_name}_{now_time}"}})
     else:
         accelerator = Accelerator()
     
@@ -118,7 +119,7 @@ def main(args):
             'AUPR': eval_aupr,
             'BEST_MCC': best_mcc,
             'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
-            'TPR_AT_FPT_5%': tpr_at_5,
+            'TPR_AT_FPR_5%': tpr_at_5,
             'original_discrepancy': all_original_eval,
             'rewritten_discrepancy': all_rewritten_eval,
         }

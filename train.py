@@ -78,6 +78,7 @@ def main(args):
     # Set up accelerator
     if args.wandb == True:
         import wandb
+        now_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         accelerator = Accelerator(log_with='wandb')
         accelerator.init_trackers(project_name=f'Train_Machine_Generate_Text_Detection',
                                   config={
@@ -101,7 +102,7 @@ def main(args):
                                       'eval_freq': args.eval_freq,
                                   },
                                   init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
-                                                         "name": f'{run_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}'}})
+                                                         "name": f'{run_name}_{now_time}'}})
     else:
         accelerator = Accelerator()
     if accelerator.is_main_process:
