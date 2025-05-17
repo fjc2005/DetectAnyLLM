@@ -45,7 +45,7 @@ def main(args):
     if args.save_file is not None:
         save_name = f'{args.save_file}'
     elif model.reference_model is None:
-        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
+        save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     else:
         save_name = f'{args.train_method}_score_{model.scoring_model.config._name_or_path.split("/")[-1]}_ref_{model.reference_model.config._name_or_path.split("/")[-1]}_{args.eval_data_path.split("/")[-1].split(".json")[0]}_evalBS{args.eval_batch_size}'
     
@@ -73,9 +73,7 @@ def main(args):
                              collate_fn=eval_dataset.collate_fn)
     
     model, eval_dataset, eval_loader = accelerator.prepare(model, eval_dataset, eval_loader)
-    print(model.scoring_model.config._name_or_path)
-    print(model.reference_model.config._name_or_path)
-
+    
     # Evaluate
     trainer = Trainer()
 
