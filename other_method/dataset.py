@@ -5,13 +5,9 @@ import json
 class CustomDataset(Dataset):
     def __init__(self,
                  data_path,
-                 scoring_tokenizer,
-                 reference_tokenizer=None,
                  data_format='MIRAGE'):
         super().__init__()
         self.data = json.load(open(data_path, 'r'))
-        self.scoring_tokenizer = scoring_tokenizer
-        self.reference_tokenizer = reference_tokenizer
         self.data_format = data_format
 
     def __getitem__(self, index):
@@ -33,35 +29,6 @@ class CustomDataset(Dataset):
         return {
             'original': original_texts,
             'rewritten': rewritten_texts
-        }
-
-        # Tokenize batches with padding and truncation
-        original_tokens_for_scoring_model = self.scoring_tokenizer(
-            original_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        )
-        rewritten_tokens_for_scoring_model = self.scoring_tokenizer(
-            rewritten_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        )
-        original_tokens_for_reference_model = self.reference_tokenizer(
-            original_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        ) if self.reference_tokenizer is not None else {'input_ids': None, 'attention_mask': None}
-        rewritten_tokens_for_reference_model = self.reference_tokenizer(
-            rewritten_texts, return_tensors="pt", padding=True, truncation=True, return_token_type_ids=False
-        ) if self.reference_tokenizer is not None else {'input_ids': None, 'attention_mask': None}
-
-        return {
-            'scoring':{
-                'original_input_ids': original_tokens_for_scoring_model["input_ids"],
-                'original_attention_mask': original_tokens_for_scoring_model["attention_mask"],
-                'rewritten_input_ids': rewritten_tokens_for_scoring_model["input_ids"],
-                'rewritten_attention_mask': rewritten_tokens_for_scoring_model["attention_mask"]
-            },
-            'reference':{
-                'original_input_ids': original_tokens_for_reference_model["input_ids"],
-                'original_attention_mask': original_tokens_for_reference_model["attention_mask"],
-                'rewritten_input_ids': rewritten_tokens_for_reference_model["input_ids"],
-                'rewritten_attention_mask': rewritten_tokens_for_reference_model["attention_mask"]
-            }
         }
     
     def __len__(self):
