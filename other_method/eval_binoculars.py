@@ -145,9 +145,10 @@ if __name__ == "__main__":
     for idx, item in tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating binoculars on {args.eval_data_path.split('/')[-1]}"):
         local_original_eval.extend(model(item['original']))
         local_rewritten_eval.extend(model(item['rewritten']))
+    accelerator.wait_for_everyone()
+    all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
+    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
     if accelerator.is_main_process:
-        all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
-        all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
         fpr, tpr, eval_auroc = AUROC(pos_list=all_original_eval, neg_list=all_rewritten_eval)
         prec, recall, eval_aupr = AUPR(pos_list=all_original_eval, neg_list=all_rewritten_eval)
         tpr_at_5 = TPR_at_FPR5(pos_list=all_original_eval, neg_list=all_rewritten_eval)

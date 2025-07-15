@@ -20,7 +20,6 @@ parser.add_argument("--scoring_model_name", type=str, default="Qwen2-0.5B")
 parser.add_argument("--reference_model_name", type=str, default=None)
 parser.add_argument("--cache_dir", type=str, default="./model/")
 parser.add_argument("--discrepancy_analytic", type=bool, default=False)
-parser.add_argument("--use_bfloat16", type=bool, default=True)
 parser.add_argument('--eval_data_path', type=str, default='./data/MIRAGE_BENCH/DIG/rewrite.json', help='The path to the evaluation data. Default: ./data/DIG/rewrite.json.')
 parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The format of the evaluation data. Should be MIRAGE or ImBD. Default: MIRAGE.')
 parser.add_argument('--save_path', type=str, default='./results/FastDetectGPT')
@@ -112,7 +111,6 @@ class FastDetectGPT(nn.Module):
                  scoring_tokenizer: AutoTokenizer=None,
                  reference_tokenizer: AutoTokenizer=None,
                  cache_dir: str=None,
-                 pretrained_ckpt: str=None,
                  discrepancy_analytic: bool=False,
                  ):
         super().__init__()
@@ -219,9 +217,10 @@ if __name__ == "__main__":
     for idx, item in tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating FastDetectGPT on {args.eval_data_path.split('/')[-1]}"):
         local_original_eval.extend(model(item['original']))
         local_rewritten_eval.extend(model(item['rewritten']))
+    accelerator.wait_for_everyone()
+    all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
+    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
     if accelerator.is_main_process:
-        all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
-        all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
         fpr, tpr, eval_auroc = AUROC(neg_list=all_original_eval, pos_list=all_rewritten_eval)
         prec, recall, eval_aupr = AUPR(neg_list=all_original_eval, pos_list=all_rewritten_eval)
         tpr_at_5 = TPR_at_FPR5(neg_list=all_original_eval, pos_list=all_rewritten_eval)
