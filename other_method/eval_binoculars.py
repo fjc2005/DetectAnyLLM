@@ -21,6 +21,7 @@ parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The 
 parser.add_argument('--save_path', type=str, default='./results/binoculars')
 parser.add_argument('--save_file', type=str, default='eval_binoculars.json')
 parser.add_argument('--eval_batch_size', type=int, default=1, help='The batch size for evaluation. Default: 1.')
+parser.add_argument('--seed', type=int, default=42)
 
 torch.set_grad_enabled(False)
 
@@ -78,7 +79,6 @@ class Binoculars(nn.Module):
                  ) -> None:
         assert_tokenizer_consistency(observer_name_or_path, performer_name_or_path)
 
-        self.change_mode(mode)
         self.observer_model = AutoModelForCausalLM.from_pretrained(observer_name_or_path,
                                                                    trust_remote_code=True,
                                                                    torch_dtype=torch.float16
@@ -94,14 +94,6 @@ class Binoculars(nn.Module):
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.max_token_observed = max_token_observed
-
-    def change_mode(self, mode: str) -> None:
-        if mode == "low-fpr":
-            self.threshold = BINOCULARS_FPR_THRESHOLD
-        elif mode == "accuracy":
-            self.threshold = BINOCULARS_ACCURACY_THRESHOLD
-        else:
-            raise ValueError(f"Invalid mode: {mode}")
 
     def _tokenize(self, batch: list[str]) -> transformers.BatchEncoding:
         batch_size = len(batch)
@@ -134,35 +126,37 @@ class Binoculars(nn.Module):
 
 if __name__ == "__main__":
     args = parser.parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     accelerator = accelerate.Accelerator()
     model = Binoculars(observer_name_or_path=args.observer_model_path,
                        performer_name_or_path=args.performer_model_path)
     dataset = CustomDataset(data_path=args.eval_data_path, data_format=args.eval_data_format)
-    local_original_eval = []
-    local_rewritten_eval = []
+    local_original_scores = []
+    local_rewritten_scores = []
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.eval_batch_size, shuffle=False, collate_fn=dataset.collate_fn)
     model, data_loader = accelerator.prepare(model, data_loader)
     for idx, item in tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating binoculars on {args.eval_data_path.split('/')[-1]}"):
-        local_original_eval.extend(model(item['original']))
-        local_rewritten_eval.extend(model(item['rewritten']))
+        local_original_scores.extend(model(item['original']))
+        local_rewritten_scores.extend(model(item['rewritten']))
     accelerator.wait_for_everyone()
-    all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
-    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
+    all_original_scores = accelerator.gather_for_metrics(torch.tensor(local_original_scores, device=accelerator.device)).cpu().tolist()
+    all_rewritten_scores = accelerator.gather_for_metrics(torch.tensor(local_rewritten_scores, device=accelerator.device)).cpu().tolist()
     if accelerator.is_main_process:
-        fpr, tpr, eval_auroc = AUROC(pos_list=all_original_eval, neg_list=all_rewritten_eval)
-        prec, recall, eval_aupr = AUPR(pos_list=all_original_eval, neg_list=all_rewritten_eval)
-        tpr_at_5 = TPR_at_FPR5(pos_list=all_original_eval, neg_list=all_rewritten_eval)
-        original_discrepancy_mean = torch.mean(torch.tensor(all_original_eval)).item()
-        original_discrepancy_std = torch.std(torch.tensor(all_original_eval)).item()
-        rewritten_discrepancy_mean = torch.mean(torch.tensor(all_rewritten_eval)).item()
-        rewritten_discrepancy_std = torch.std(torch.tensor(all_rewritten_eval)).item()
+        fpr, tpr, eval_auroc = AUROC(pos_list=all_original_scores, neg_list=all_rewritten_scores)
+        prec, recall, eval_aupr = AUPR(pos_list=all_original_scores, neg_list=all_rewritten_scores)
+        tpr_at_5 = TPR_at_FPR5(pos_list=all_original_scores, neg_list=all_rewritten_scores)
+        original_score_mean = torch.mean(torch.tensor(all_original_scores)).item()
+        original_score_std = torch.std(torch.tensor(all_original_scores)).item()
+        rewritten_score_mean = torch.mean(torch.tensor(all_rewritten_scores)).item()
+        rewritten_score_std = torch.std(torch.tensor(all_rewritten_scores)).item()
         print(f'Eval AUROC: {eval_auroc:.4f} | Eval AUPR: {eval_aupr:.4f}')
         best_mcc = 0.
         best_balanced_accuracy = 0.
-        all_discrepancy = all_original_eval + all_rewritten_eval
-        for threshold in tqdm(all_discrepancy, total=len(all_discrepancy), desc="Finding best threshold"):
-            mcc = MCC(pos_list=all_original_eval, neg_list=all_rewritten_eval, threshold=threshold)
-            balanced_accuracy = Balanced_Accuracy(pos_list=all_original_eval, neg_list=all_rewritten_eval, threshold=threshold)
+        all_scores = all_original_scores + all_rewritten_scores
+        for threshold in tqdm(all_scores, total=len(all_scores), desc="Finding best threshold"):
+            mcc = MCC(pos_list=all_original_scores, neg_list=all_rewritten_scores, threshold=threshold)
+            balanced_accuracy = Balanced_Accuracy(pos_list=all_original_scores, neg_list=all_rewritten_scores, threshold=threshold)
             if mcc > best_mcc:
                 best_mcc = mcc
             if balanced_accuracy > best_balanced_accuracy:
@@ -175,17 +169,17 @@ if __name__ == "__main__":
             'performer_model_path': args.performer_model_path,
             'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
             'eval_batch_size': args.eval_batch_size,
-            'original_discrepancy_mean': original_discrepancy_mean,
-            'original_discrepancy_std': original_discrepancy_std,
-            'rewritten_discrepancy_mean': rewritten_discrepancy_mean,
-            'rewritten_discrepancy_std': rewritten_discrepancy_std,
+            'original_score_mean': original_score_mean,
+            'original_score_std': original_score_std,
+            'rewritten_score_mean': rewritten_score_mean,
+            'rewritten_score_std': rewritten_score_std,
             'AUROC': eval_auroc,
             'AUPR': eval_aupr,
             'BEST_MCC': best_mcc,
             'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
             'TPR_AT_FPR_5%': tpr_at_5,
-            'original_discrepancy': all_original_eval,
-            'rewritten_discrepancy': all_rewritten_eval,
+            'original_scores': all_original_scores,
+            'rewritten_scores': all_rewritten_scores,
         }
 
         if not os.path.exists(args.save_path):

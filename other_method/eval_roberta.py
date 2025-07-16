@@ -23,6 +23,7 @@ parser.add_argument('--eval_data_format', type=str, default='MIRAGE', help='The 
 parser.add_argument('--save_path', type=str, default='./results/roberta')
 parser.add_argument('--save_file', type=str, default='eval_roberta.json')
 parser.add_argument('--eval_batch_size', type=int, default=8, help='The batch size for evaluation.')
+parser.add_argument('--seed', type=int, default=42)
 
 def from_pretrained(cls, model_name, kwargs, cache_dir):
     # use local model if it exists
@@ -69,7 +70,6 @@ class RobertaDetector(nn.Module):
         tokenized = self.scoring_tokenizer(input_text, padding=True, truncation=True, max_length=512, return_tensors="pt").to(self.scoring_model.device)
         with torch.no_grad():
             logits = self.scoring_model(**tokenized).logits
-            # probability of being machine-generated (fake)
             probs = torch.softmax(logits, dim=-1)
             scores = probs[:, 0]
         return scores.tolist()
@@ -77,6 +77,8 @@ class RobertaDetector(nn.Module):
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     accelerator = accelerate.Accelerator()
     model = RobertaDetector(scoring_model_name=args.model_name, cache_dir=args.cache_dir)
     model.eval()
@@ -86,39 +88,35 @@ if __name__ == '__main__':
     
     model, data_loader = accelerator.prepare(model, data_loader)
 
-    local_original_eval = []
-    local_rewritten_eval = []
+    local_original_scores = []
+    local_rewritten_scores = []
 
     for idx, item in tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating {args.model_name} on {args.eval_data_path.split('/')[-1]}"):
-        local_original_eval.extend(model(item['original']))
-        local_rewritten_eval.extend(model(item['rewritten']))
+        local_original_scores.extend(model(item['original']))
+        local_rewritten_scores.extend(model(item['rewritten']))
 
     accelerator.wait_for_everyone()
-    all_original_eval = accelerator.gather_for_metrics(torch.tensor(local_original_eval, device=accelerator.device)).cpu().tolist()
-    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(local_rewritten_eval, device=accelerator.device)).cpu().tolist()
+    all_original_scores = accelerator.gather_for_metrics(torch.tensor(local_original_scores, device=accelerator.device)).cpu().tolist()
+    all_rewritten_scores = accelerator.gather_for_metrics(torch.tensor(local_rewritten_scores, device=accelerator.device)).cpu().tolist()
 
     if accelerator.is_main_process:
-        
-        # In roberta-base-openai-detector, label 1 is fake (rewritten), label 0 is real (original).
-        # We use the probability of label 1 as the score.
-        # So, pos_list is rewritten_eval, and neg_list is original_eval.
-        fpr, tpr, eval_auroc = AUROC(neg_list=all_original_eval, pos_list=all_rewritten_eval)
-        prec, recall, eval_aupr = AUPR(neg_list=all_original_eval, pos_list=all_rewritten_eval)
-        tpr_at_5 = TPR_at_FPR5(neg_list=all_original_eval, pos_list=all_rewritten_eval)
+        fpr, tpr, eval_auroc = AUROC(neg_list=all_original_scores, pos_list=all_rewritten_scores)
+        prec, recall, eval_aupr = AUPR(neg_list=all_original_scores, pos_list=all_rewritten_scores)
+        tpr_at_5 = TPR_at_FPR5(neg_list=all_original_scores, pos_list=all_rewritten_scores)
 
-        original_discrepancy_mean = torch.mean(torch.tensor(all_original_eval)).item()
-        original_discrepancy_std = torch.std(torch.tensor(all_original_eval)).item()
-        rewritten_discrepancy_mean = torch.mean(torch.tensor(all_rewritten_eval)).item()
-        rewritten_discrepancy_std = torch.std(torch.tensor(all_rewritten_eval)).item()
+        original_score_mean = torch.mean(torch.tensor(all_original_scores)).item()
+        original_score_std = torch.std(torch.tensor(all_original_scores)).item()
+        rewritten_score_mean = torch.mean(torch.tensor(all_rewritten_scores)).item()
+        rewritten_score_std = torch.std(torch.tensor(all_rewritten_scores)).item()
         
         print(f'Eval AUROC: {eval_auroc:.4f} | Eval AUPR: {eval_aupr:.4f}')
 
         best_mcc = 0.
         best_balanced_accuracy = 0.
-        all_discrepancy = all_original_eval + all_rewritten_eval
-        for threshold in tqdm(all_discrepancy, total=len(all_discrepancy), desc="Finding best threshold"):
-            mcc = MCC(neg_list=all_original_eval, pos_list=all_rewritten_eval, threshold=threshold)
-            balanced_accuracy = Balanced_Accuracy(neg_list=all_original_eval, pos_list=all_rewritten_eval, threshold=threshold)
+        all_scores = all_original_scores + all_rewritten_scores
+        for threshold in tqdm(all_scores, total=len(all_scores), desc="Finding best threshold"):
+            mcc = MCC(neg_list=all_original_scores, pos_list=all_rewritten_scores, threshold=threshold)
+            balanced_accuracy = Balanced_Accuracy(neg_list=all_original_scores, pos_list=all_rewritten_scores, threshold=threshold)
             if mcc > best_mcc:
                 best_mcc = mcc
             if balanced_accuracy > best_balanced_accuracy:
@@ -131,17 +129,17 @@ if __name__ == '__main__':
             'model_name': args.model_name,
             'eval_dataset': args.eval_data_path.split("/")[-1].split(".json")[0],
             'eval_batch_size': args.eval_batch_size,
-            'original_discrepancy_mean': original_discrepancy_mean,
-            'original_discrepancy_std': original_discrepancy_std,
-            'rewritten_discrepancy_mean': rewritten_discrepancy_mean,
-            'rewritten_discrepancy_std': rewritten_discrepancy_std,
+            'original_score_mean': original_score_mean,
+            'original_score_std': original_score_std,
+            'rewritten_score_mean': rewritten_score_mean,
+            'rewritten_score_std': rewritten_score_std,
             'AUROC': eval_auroc,
             'AUPR': eval_aupr,
             'BEST_MCC': best_mcc,
             'BEST_BALANCED_ACCURACY': best_balanced_accuracy,
             'TPR_AT_FPR_5%': tpr_at_5,
-            'original_discrepancy': all_original_eval,
-            'rewritten_discrepancy': all_rewritten_eval,
+            'original_scores': all_original_scores,
+            'rewritten_scores': all_rewritten_scores,
         }
 
         if not os.path.exists(args.save_path):
