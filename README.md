@@ -10,6 +10,7 @@
 
 <p align="center">
 <a href="https://www.python.org/downloads/release/python-3120/"><img src="https://img.shields.io/badge/python-3.12-blue.svg" alt="Python Version 3.12"></a>
+<a href="https://fjc2005.github.io/detectanyllm/ "><img src='https://img.shields.io/badge/Project-Page-green' alt='Project Page'></a>
 </p>
 
 **DetectAnyLLM** is an **AI-generated text detection** (i.e., Machine-Generated Text Detection) model based on the [Fast-DetectGPT](https://github.com/baoguangsheng/fast-detect-gpt) framework, optimized using **DDL (Direct Discrepancy Learning)**.
