@@ -23,7 +23,8 @@ Additionally, considering that existing benchmark datasets lack coverage of prop
 </div>
 
 ## 🔥 News
-- **[2025-07-05]** Our paper **DetectAnyLLM: Towards Generalizable and Robust Detection of Machine-Generated Text Across Domains and Models** is accepted by ACM Multimedia 2025!
+- **[2025-07-17]** The code of **DetectAnyLLM** and the data of **MIRAGE** is released!
+- **[2025-07-05]** Our paper **DetectAnyLLM: Towards Generalizable and Robust Detection of Machine-Generated Text Across Domains and Models** is accepted by **ACM Multimedia 2025**!
 
 ## 🛠️ Setup
 Run following code to build up environment
@@ -57,8 +58,8 @@ sh scripts/train.sh
 ```
 
 ### Evaluation
-**Make sure you have trained DDL or downloaded checkpoints**
 **[GPU memories cost: ~15G]**
+**Make sure you have trained DDL or downloaded checkpoints**
 ```bash
 sh scripts/eval.sh
 ```
@@ -79,3 +80,10 @@ You should notice that if you want to reproduce DetectGPT and NPR, you should ru
 ```bash
 sh scripts/other_method/generate_perturbs.sh
 ```
+
+
+## TODO
+
+- [ ] Jittor implementation of DetectAnyLLM.
+- [ ] Code of Local Demo.
+- [ ] Release MIRAGE-zh.
