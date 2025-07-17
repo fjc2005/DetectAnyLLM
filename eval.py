@@ -34,6 +34,8 @@ parser.add_argument('--save_file', type=str, default=None, help='The file to sav
 
 
 def main(args):
+    if args.reference_model_name == "None":
+        args.reference_model_name = None
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
                                  reference_model_name=args.reference_model_name,
                                  cache_dir=args.cache_dir,

@@ -52,6 +52,8 @@ parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directo
 
 def main(args):
     # Set up model
+    if args.reference_model_name == "None":
+        args.reference_model_name = None
     model = DiscrepancyEstimator(scoring_model_name=args.scoring_model_name,
                                  reference_model_name=args.reference_model_name,
                                  cache_dir=args.cache_dir,
