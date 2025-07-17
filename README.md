@@ -19,7 +19,7 @@ DDL is an novel optimization method specifically designed for AI text detection 
 Additionally, considering that existing benchmark datasets lack coverage of proprietary LLMs and do not sufficiently address machine-revised texts, we propose the **MIRAGE** benchmark. MIRAGE collects human-written texts from 10 corpora across 5 domains, and uses 17 powerful LLMs (including 13 proprietary and 4 advanced open-source LLMs) to **re-generate**, **polish**, and **rewrite** these texts, resulting in nearly 100,000 high-quality human-AI text pairs. We hope that the MIRAGE benchmark will contribute to establishing a unified evaluation standard for AI-generated text detection.
 
 <div align="center">
-    <img src="./fig/teaser_small.png" alt="teaser" width="50%">
+    <img src="./fig/teaser_small.png" alt="teaser" width="98.5%">
 </div>
 
 ## 🔥 News
