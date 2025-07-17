@@ -5,4 +5,4 @@ scikit_learn
 torch
 tqdm
 transformers
-wandb
+huggingface_hub
