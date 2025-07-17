@@ -41,6 +41,7 @@ parser.add_argument('--eval_freq', type=int, default=1, help='The frequency of e
 parser.add_argument('--save_freq', type=int, default=5, help='The frequency of saving the model. Default: 5.')
 parser.add_argument('--save_directory', type=str, default='./ckpt/', help='The directory to save the model. Default: ./ckpt/.')
 parser.add_argument('--wandb', type=bool, default=False, help='Whether to use wandb for tracking. Default: False.')
+parser.add_argument('--eval', type=bool, default=False, help='Whether to evaluate the model. Default: False.')
 # Loss
 parser.add_argument('--DDL_target_original_crit', type=float, default=0., help='The target crit of original text when using DDL. Default: 0.')
 parser.add_argument('--DDL_target_rewritten_crit', type=float, default=100., help='The target crit of rewritten text when using DDL. Default: 1.')
@@ -48,7 +49,7 @@ parser.add_argument('--DPO_beta', type=float, default=0.05, help='The beta of DP
 # Save
 parser.add_argument('--ckpt_name', type=str, default=None, help='The name of the saved model. Default: None.')
 parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directory to save the wandb logs. Default: ./log/.')
-
+parser.add_argument('--wandb_entity', type=str, default=None, help='The entity of the wandb project. Default: None.')
 
 def main(args):
     # Set up model
@@ -80,6 +81,8 @@ def main(args):
     # Set up accelerator
     if args.wandb == True:
         import wandb
+        if args.wandb_entity is None:
+            assert os.environ.get('WANDB_MODE') == 'offline', "Please set WANDB_MODE to offline or provide a wandb_entity"
         now_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         accelerator = Accelerator(log_with='wandb')
         accelerator.init_trackers(project_name=f'Train_Machine_Generate_Text_Detection',
@@ -103,7 +106,7 @@ def main(args):
                                       'wandb_dir': args.wandb_dir,
                                       'eval_freq': args.eval_freq,
                                   },
-                                  init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
+                                  init_kwargs={"wandb": {"entity": args.wandb_entity,
                                                          "name": f'{run_name}_{now_time}'}})
     else:
         accelerator = Accelerator()
@@ -149,7 +152,8 @@ def main(args):
                   DDL_target_rewritten_crit=args.DDL_target_rewritten_crit,
                   DPO_beta=args.DPO_beta,
                   track_with_wandb=args.wandb,
-                  save_name=run_name)
+                  save_name=run_name,
+                  eval=args.eval)
     
 if __name__ == '__main__':
     args = parser.parse_args()

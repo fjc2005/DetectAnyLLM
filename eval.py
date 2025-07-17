@@ -28,6 +28,7 @@ parser.add_argument('--eval_batch_size', type=int, default=1, help='The batch si
 # WandB
 parser.add_argument('--wandb', type=bool, default=False, help='Whether to use wandb for logging. Default: False.')
 parser.add_argument('--wandb_dir', type=str, default='./log/', help='The directory to store the wandb logs. Default: ./log/.')
+parser.add_argument('--wandb_entity', type=str, default=None, help='The entity of the wandb project. Default: None.')
 # Save
 parser.add_argument('--save_dir', type=str, default='./results/', help='The directory to save the evaluation results. Default: ./results/.')
 parser.add_argument('--save_file', type=str, default=None, help='The file to save the evaluation results. Default: None.')
@@ -52,6 +53,8 @@ def main(args):
     # Set up accelerator
     if args.wandb == True:
         import wandb
+        if args.wandb_entity is None:
+            assert os.environ.get('WANDB_MODE') == 'offline', "Please set WANDB_MODE to offline or provide a wandb_entity"
         now_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         accelerator = Accelerator(log_with='wandb')
         if args.pretrained_model_name_or_path is not None:
@@ -66,7 +69,7 @@ def main(args):
                                           'wandb_dir': args.wandb_dir,
                                           'result_file': save_name,
                                       },
-                                      init_kwargs={"wandb": {"entity": "fujiachen-nankai-university",
+                                      init_kwargs={"wandb": {"entity": args.wandb_entity,
                                                              "name": f"{save_name}_{now_time}"}})
     else:
         accelerator = Accelerator()

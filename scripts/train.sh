@@ -10,7 +10,6 @@ accelerate launch train.py \
     --train_data_path ./data/ai_detection_500_polish.raw_data.json \
     --train_data_format ImBD \
     --eval_data_path ./data/MIRAGE_BENCH/DIG/polish.json \
-    --eval_freq 5 \
     --save_freq 2 \
     --train_method ${TRAIN_METHOD} \
     --eval_batch_size 4
