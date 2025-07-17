@@ -31,7 +31,8 @@ class Trainer():
               DPO_beta: float = 0.05,
               train_batch_size: int = 1,
               eval_batch_size: int = 1,
-              track_with_wandb: bool = True,):
+              track_with_wandb: bool = True,
+              eval: bool = False,):
         assert loss_fn in [calculate_DDL_loss, calculate_DPO_loss], "Invalid loss function"
         start_time = time.time()
         train_loader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=True,
@@ -112,31 +113,32 @@ class Trainer():
                 accelerator.print(f'Original Discrepancy: {original_discrepancy_mean:.2f} ± {original_discrepancy_std:.2f} | Rewritten Discrepancy: {rewritten_discrepancy_mean:.2f} ± {rewritten_discrepancy_std:.2f}')
                 accelerator.print(f'Train AUROC: {train_epoch_auroc:.4f} | Train AUPR: {train_epoch_aupr:.4f}')
             
-            if (epoch + 1) % eval_freq == 0 or (epoch + 1) == num_epochs:
-                epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval = self.eval(model, eval_loader, show_progress_bar=accelerator.is_main_process)
+            if eval:
+                if (epoch + 1) % eval_freq == 0 or (epoch + 1) == num_epochs:
+                    epoch_original_discrepancy_eval, epoch_rewritten_discrepancy_eval = self.eval(model, eval_loader, show_progress_bar=accelerator.is_main_process)
+                    accelerator.wait_for_everyone()
+                    all_original_eval = accelerator.gather_for_metrics(torch.tensor(epoch_original_discrepancy_eval, device=accelerator.device))
+                    all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(epoch_rewritten_discrepancy_eval, device=accelerator.device))
+                    if accelerator.is_main_process:
+                        fpr, tpr, eval_epoch_auroc = AUROC(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
+                        prec, recall, eval_epoch_aupr = AUPR(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
+                        original_discrepancy_mean = torch.mean(all_original_eval).item()
+                        original_discrepancy_std = torch.std(all_original_eval).item()
+                        rewritten_discrepancy_mean = torch.mean(all_rewritten_eval).item()
+                        rewritten_discrepancy_std = torch.std(all_rewritten_eval).item()
+                        log_dict.update({
+                            "eval/auroc": eval_epoch_auroc,
+                            "eval/aupr": eval_epoch_aupr,
+                            "eval/original_discrepancy_mean": original_discrepancy_mean,
+                            "eval/original_discrepancy_std": original_discrepancy_std,
+                            "eval/rewritten_discrepancy_mean": rewritten_discrepancy_mean,
+                            "eval/rewritten_discrepancy_std": rewritten_discrepancy_std,
+                        })
+                        accelerator.print(f'Original Discrepancy: {original_discrepancy_mean:.2f} ± {original_discrepancy_std:.2f} | Rewritten Discrepancy: {rewritten_discrepancy_mean:.2f} ± {rewritten_discrepancy_std:.2f}')
+                        accelerator.print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
                 accelerator.wait_for_everyone()
-                all_original_eval = accelerator.gather_for_metrics(torch.tensor(epoch_original_discrepancy_eval, device=accelerator.device))
-                all_rewritten_eval = accelerator.gather_for_metrics(torch.tensor(epoch_rewritten_discrepancy_eval, device=accelerator.device))
-                if accelerator.is_main_process:
-                    fpr, tpr, eval_epoch_auroc = AUROC(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
-                    prec, recall, eval_epoch_aupr = AUPR(all_original_eval.cpu().tolist(), all_rewritten_eval.cpu().tolist())
-                    original_discrepancy_mean = torch.mean(all_original_eval).item()
-                    original_discrepancy_std = torch.std(all_original_eval).item()
-                    rewritten_discrepancy_mean = torch.mean(all_rewritten_eval).item()
-                    rewritten_discrepancy_std = torch.std(all_rewritten_eval).item()
-                    log_dict.update({
-                        "eval/auroc": eval_epoch_auroc,
-                        "eval/aupr": eval_epoch_aupr,
-                        "eval/original_discrepancy_mean": original_discrepancy_mean,
-                        "eval/original_discrepancy_std": original_discrepancy_std,
-                        "eval/rewritten_discrepancy_mean": rewritten_discrepancy_mean,
-                        "eval/rewritten_discrepancy_std": rewritten_discrepancy_std,
-                    })
-                    accelerator.print(f'Original Discrepancy: {original_discrepancy_mean:.2f} ± {original_discrepancy_std:.2f} | Rewritten Discrepancy: {rewritten_discrepancy_mean:.2f} ± {rewritten_discrepancy_std:.2f}')
-                    accelerator.print(f'Eval AUROC: {eval_epoch_auroc:.4f} | Eval AUPR: {eval_epoch_aupr:.4f}')
-            accelerator.wait_for_everyone()
-            if track_with_wandb and accelerator.is_main_process:
-                accelerator.log(log_dict, step=(epoch + 1) * len(train_loader))
+                if track_with_wandb and accelerator.is_main_process:
+                    accelerator.log(log_dict, step=(epoch + 1) * len(train_loader))
 
             if (epoch + 1) == num_epochs or (epoch + 1) % save_freq == 0:
                 accelerator.wait_for_everyone()
