@@ -1,8 +1,4 @@
-# Copyright (c) Guangsheng Bao.
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
-
+# Revise from https://github.com/baoguangsheng/fast-detect-gpt
 import os
 import numpy as np
 import torch
