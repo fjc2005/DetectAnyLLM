@@ -6,3 +6,4 @@ torch
 tqdm
 transformers
 huggingface_hub
+wandb
