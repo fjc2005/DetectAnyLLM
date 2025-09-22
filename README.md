@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-    <a href="https://arxiv.org/abs/2509.14268"><img src='https://img.shields.io/badge/Paper-2507.01634-red' alt='Paper PDF'></a>
+    <a href="https://arxiv.org/abs/2509.14268"><img src='https://img.shields.io/badge/Paper-2509.14268-red' alt='Paper PDF'></a>
     <a href="https://www.python.org/downloads/release/python-3120/"><img src="https://img.shields.io/badge/python-3.12-blue.svg" alt="Python Version 3.12"></a>
     <a href="https://huggingface.co/spaces/fjc/DetectAnyLLM"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Demo-blue" alt="Hugging Face Demo"></a>
     <a href="https://fjc2005.github.io/detectanyllm/"><img src='https://img.shields.io/badge/Project-Page-green' alt='Project Page'></a>
@@ -43,6 +43,7 @@ Additionally, considering that existing benchmark datasets lack coverage of prop
 ---
 
 ## 🔥 News
+- **[2025-09-19]** 🚀 Our paper **DetectAnyLLM** has been released at [DetectAnyLLM](https://arxiv.org/abs/2509.14268)!
 - **[2025-07-17]** 🎉 The code of **DetectAnyLLM** and the data of **MIRAGE** is released!
 - **[2025-07-05]** 📝 Our paper **DetectAnyLLM: Towards Generalizable and Robust Detection of Machine-Generated Text Across Domains and Models** is accepted by **ACM Multimedia 2025**!
 
