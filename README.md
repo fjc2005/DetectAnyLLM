@@ -13,7 +13,8 @@
 <p align="center">
     <a href="https://arxiv.org/abs/2509.14268"><img src='https://img.shields.io/badge/Paper-2509.14268-red' alt='Paper PDF'></a>
     <a href="https://www.python.org/downloads/release/python-3120/"><img src="https://img.shields.io/badge/python-3.12-blue.svg" alt="Python Version 3.12"></a>
-    <a href="https://huggingface.co/spaces/fjc/DetectAnyLLM"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Demo-blue" alt="Hugging Face Demo"></a>
+   <a href='https://huggingface.co/JiachenFu/Qwen2-0.5B-detectanyllm-detector-en'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue'></a>
+    <a href="https://huggingface.co/spaces/JiachenFu/DetectAnyLLM"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Demo-blue" alt="Hugging Face Demo"></a>
     <a href="https://fjc2005.github.io/detectanyllm/"><img src='https://img.shields.io/badge/Project-Page-green' alt='Project Page'></a>
 </p>
 
